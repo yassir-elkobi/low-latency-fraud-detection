@@ -1,7 +1,6 @@
-# RCP209 – StreamScore
+# Low-Latency Fraud Detection
 
-FastAPI microservice serving a calibrated binary classifier with tail-latency (P50/P95/P99) metrics and a minimal
-dashboard, plus offline evaluation and a streaming simulator (coverage/violations under drift and label delay).
+Real-time fraud detection microservice with calibrated ML models, tail-latency monitoring (P50/P95/P99), and streaming evaluation under drift. Built for production-grade decisioning with conformal prediction guarantees.
 
 ## Quickstart
 
@@ -24,7 +23,10 @@ dashboard, plus offline evaluation and a streaming simulator (coverage/violation
 - Serving: P50/P95/P99 tail latencies, requests/sec (dashboard)
 - Streaming: coverage (1-α) and violations vs time; window/decay ablation
 
-## Notes
+## Academic Context
 
-- Dataset: Credit Card Fraud (ULB/Kaggle). Provide data/creditcard.csv locally or use a sample.
-- Report language: English, aligned with RCP209 expectations.
+Part of RCP209 (Machine Learning) coursework at CNAM Paris, focused on production ML systems.
+
+- Dataset: Credit Card Fraud Detection (ULB/Kaggle)
+- Report: English, covering calibration, conformal prediction, and streaming evaluation
+- Key differentiators: P95 latency budgets, coverage guarantees under drift
