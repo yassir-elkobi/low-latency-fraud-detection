@@ -20,6 +20,7 @@ venv/
 # Project data/artifacts
 data/*
 !data/.gitkeep
+!data/creditcard.csv
 models/*
 !models/.gitkeep
 artifacts/*
