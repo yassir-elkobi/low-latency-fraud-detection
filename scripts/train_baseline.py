@@ -40,34 +40,18 @@ class BaselineTrainer:
 
     # ---------------------------- Data ----------------------------
     def load_dataset(self, path: str | None = None, sample_frac: float | None = None) -> pd.DataFrame:
-        """Load Credit Card Fraud dataset.
+        """Load Credit Card Fraud dataset from local CSV.
 
-        Preference order:
-        1) Local CSV at data/creditcard.csv
-        2) Remote via KaggleHub (mlg-ulb/creditcardfraud → creditcard.csv)
-
+        Expects file at data/creditcard.csv (or provided path).
         """
         if path is None:
             path = "data/creditcard.csv"
 
         csv_path = Path(path)
-        if csv_path.exists():
-            df = pd.read_csv(csv_path)
-        else:
-            try:
-                import kagglehub  # type: ignore
-                from kagglehub import KaggleDatasetAdapter  # type: ignore
-            except Exception as exc:  # noqa: BLE001
-                raise RuntimeError(
-                    "Dataset not found locally and KaggleHub is unavailable. "
-                    "Install with: pip install kagglehub[pandas-datasets]"
-                ) from exc
+        if not csv_path.exists():
+            raise FileNotFoundError(f"Dataset not found at {csv_path}. Place creditcard.csv in data/.")
 
-            df = kagglehub.load_dataset(
-                KaggleDatasetAdapter.PANDAS,
-                "mlg-ulb/creditcardfraud",
-                "creditcard.csv",
-            )
+        df = pd.read_csv(csv_path)
 
         if "Time" not in df.columns or "Class" not in df.columns:
             raise ValueError("Dataset must contain 'Time' and 'Class' columns.")
