@@ -193,7 +193,7 @@ class BaselineTrainer:
         """Fit calibrators on calibration split and select best by NLL then Brier."""
         results: List[Tuple[str, CalibratedClassifierCV, float, float]] = []
         for method in methods:
-            calib = CalibratedClassifierCV(base_estimator=base_prefit, method=method, cv="prefit")
+            calib = CalibratedClassifierCV(estimator=base_prefit, method=method, cv="prefit")
             calib.fit(X_cal, y_cal)
             p_cal = calib.predict_proba(X_cal)[:, 1]
             nll = log_loss(y_cal, p_cal, labels=[0, 1])
