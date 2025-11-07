@@ -1,10 +1,11 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import json
-import matplotlib.pyplot as plt
-from __future__ import annotations
-from typing import Any, Dict, List, Tuple
-from pathlib import Path
 from joblib import dump
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.compose import ColumnTransformer
