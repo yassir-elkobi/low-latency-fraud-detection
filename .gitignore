@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.env
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Editor/OS
+.idea/
+.vscode/
+.DS_Store
+
+# Project data/artifacts
+data/*
+!data/.gitkeep
+models/*
+!models/.gitkeep
+artifacts/*
+!artifacts/.gitkeep
+
+# Node (if any)
+node_modules/

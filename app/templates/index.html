@@ -1,0 +1,42 @@
+<!--
+Minimal dashboard template for StreamScore.
+Displays latency percentiles (P50/P95/P99), requests-per-second, and model info.
+Client-side script polls the /metrics endpoint to refresh figures.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>StreamScore Dashboard</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+<div id="app">StreamScore dashboard placeholder</div>
+<script src="/static/js/dashboard.js"></script>
+</body>
+</html>
+
+<!--
+Minimal dashboard template skeleton.
+
+Displays latency percentiles (p50/p95/p99), basic throughput, and model
+metadata by polling the /metrics and /health endpoints periodically.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>StreamScore Dashboard</title>
+    <link rel="stylesheet" href="/static/css/styles.css"/>
+</head>
+<body>
+<div id="app">
+    <h1>StreamScore</h1>
+    <div id="cards"></div>
+    <canvas id="latencyChart"></canvas>
+</div>
+<script src="/static/js/dashboard.js"></script>
+</body>
+</html>

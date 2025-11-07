@@ -1,0 +1,29 @@
+/* Placeholder stylesheet for StreamScore dashboard.
+   Defines minimal layout and typography for latency cards and charts. */
+
+/*
+Minimal styles placeholder for the StreamScore dashboard.
+*/
+
+body {
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    margin: 2rem;
+}
+
+h1 {
+    margin-bottom: 1rem;
+}
+
+#cards {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.card {
+    padding: 1rem;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+}
+
+
