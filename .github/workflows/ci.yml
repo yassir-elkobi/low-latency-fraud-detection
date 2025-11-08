@@ -34,15 +34,15 @@ jobs:
 
       - name: Train baseline and calibrate
         run: |
-          python scripts/train_baseline.py
+          python -m scripts.train_baseline
 
       - name: Evaluate offline
         run: |
-          python scripts/evaluate_offline.py
+          python -m scripts.evaluate_offline
 
       - name: Streaming simulation (bounded)
         run: |
-          python scripts/simulate_stream.py --alpha 0.05 --mode window --window 2000 --label_delay 200 --max_events 20000
+          python -m scripts.simulate_stream --alpha 0.05 --mode window --window 2000 --label_delay 200 --max_events 20000
 
       - name: Summarize offline metrics
         run: |
@@ -103,7 +103,7 @@ jobs:
 
       - name: Build static site
         run: |
-          python scripts/build_static_site.py
+          python -m scripts.build_static_site
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

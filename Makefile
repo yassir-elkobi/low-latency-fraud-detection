@@ -10,13 +10,13 @@ install:
 	pip install -r requirements.txt
 
 train:
-	$(PY) scripts/train_baseline.py
+	$(PY) -m scripts.train_baseline
 
 serve:
 	uvicorn app.main:create_app --factory --host 0.0.0.0 --port $${PORT:-8000}
 
 stream:
-	$(PY) scripts/simulate_stream.py
+	$(PY) -m scripts.simulate_stream
 
 test:
 	pytest -q
