@@ -1,10 +1,15 @@
 name: CI
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 on:
   push:
-    branches: ["**"]
+    branches: [ "**" ]
   pull_request:
-    branches: ["**"]
+    branches: [ "**" ]
 
 jobs:
   train-and-test:
@@ -28,10 +33,54 @@ jobs:
           pip install -r requirements.txt
 
       - name: Train baseline and calibrate
-        if: ${{ hashFiles('data/creditcard.csv') != '' }}
         run: |
           python scripts/train_baseline.py
 
+      - name: Evaluate offline
+        run: |
+          python scripts/evaluate_offline.py
+
+      - name: Streaming simulation (bounded)
+        run: |
+          python scripts/simulate_stream.py --alpha 0.05 --mode window --window 2000 --label_delay 200 --max_events 20000
+
+      - name: Summarize offline metrics
+        run: |
+          python - <<'PY'
+          import json, pathlib, os
+          p = pathlib.Path('models/metrics_offline.json')
+          d = json.loads(p.read_text())
+          pre = d.get('metrics_pre', {})
+          post = d.get('metrics_post', {})
+          base = d.get('base_model', {})
+          calib = d.get('calibration', {})
+          lines = []
+          lines.append(f"### StreamScore Offline Metrics\n")
+          lines.append(f"- Base: {base.get('label','?')}  |  Valid AP: {base.get('valid_ap','?')}\n")
+          lines.append(f"- Calibration: {calib.get('calibration_method','?')}\n")
+          lines.append("")
+          lines.append("| Metric | Pre | Post |")
+          lines.append("|---|---:|---:|")
+          for k in ("roc_auc","pr_auc","brier","nll"):
+            lines.append(f"| {k} | {pre.get(k,'-')} | {post.get(k,'-')} |")
+          summary = "\n".join(lines)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+            f.write(summary + "\n")
+          PY
+      - name: Summarize streaming coverage
+        run: |
+          python - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path('artifacts/stream_summary.json')
+          if p.exists():
+            d = json.loads(p.read_text())
+            lines = []
+            lines.append('### Streaming Coverage')
+            lines.append(f"- Mode: {d.get('mode')} | Alpha: {d.get('alpha')} | Label delay: {d.get('label_delay')}")
+            lines.append(f"- Final coverage: {d.get('final_coverage')} | Final violation rate: {d.get('final_violation_rate')}")
+            with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write('\n'.join(lines) + '\n')
+          PY
       - name: Run tests
         run: |
           pytest -q
@@ -51,5 +100,25 @@ jobs:
           path: |
             artifacts/**
           if-no-files-found: warn
+
+      - name: Build static site
+        run: |
+          python scripts/build_static_site.py
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: train-and-test
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
 
 

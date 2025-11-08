@@ -1,36 +1,43 @@
-class TestAPI:
-    """API tests for health and prediction endpoints.
-
-    Validates that the service reports healthy status and that prediction
-    responses follow the specified schemas and basic constraints.
-    """
-
-    def test_health(self) -> None:
-        """Ensure /health returns a successful status with expected fields."""
-        pass
-
-    def test_predict_schema(self) -> None:
-        """Ensure /predict returns probability, label, and latency_ms fields."""
-        pass
-
-    def test_predict_invalid_input(self) -> None:
-        """Ensure invalid payloads produce clear, handled error responses."""
-        pass
+from typing import List
+from fastapi.testclient import TestClient
+from joblib import load
+from app.main import create_app
 
 
-"""
-API tests skeleton.
-
-Covers basic availability of /health and schema shape of /predict with
-clear error paths if the model is unavailable.
-"""
-
-
-def test_health_endpoint_skeleton() -> None:
-    """Placeholder for /health endpoint test."""
-    pass
+def _expected_columns_from_model(model) -> List[str]:
+    try:
+        pre = model.base_estimator.named_steps.get("pre") if hasattr(model,
+                                                                     "base_estimator") else model.named_steps.get("pre")
+        return list(pre.transformers_[0][2])
+    except Exception as exc:
+        raise AssertionError(f"Could not extract expected columns from model: {exc}")
 
 
-def test_predict_endpoint_schema_skeleton() -> None:
-    """Placeholder for /predict schema validation test."""
-    pass
+def test_health() -> None:
+    client = TestClient(create_app())
+    r = client.get("/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert isinstance(body["model_loaded"], bool)
+    assert isinstance(body["model_info"], dict)
+
+
+def test_predict_schema() -> None:
+    client = TestClient(create_app())
+    model = load("models/model.joblib")
+    cols = _expected_columns_from_model(model)
+    payload = {"features": {c: 0.0 for c in cols}}
+    r = client.post("/predict", json=payload)
+    assert r.status_code == 200
+    body = r.json()
+    assert 0.0 <= body["proba"] <= 1.0
+    assert body["label"] in (0, 1)
+    assert body["latency_ms"] >= 0.0
+
+
+def test_predict_invalid_input() -> None:
+    client = TestClient(create_app())
+    # Wrong number of features with list input
+    r = client.post("/predict", json={"features": [0.0, 1.0, 2.0]})
+    assert r.status_code in (400, 422)

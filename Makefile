@@ -13,8 +13,7 @@ train:
 	$(PY) scripts/train_baseline.py
 
 serve:
-	@echo "Implement FastAPI startup before using 'make serve' (uvicorn)."
-	@echo "Example (once app factory exists): uvicorn app.main:create_app --factory --reload"
+	uvicorn app.main:create_app --factory --host 0.0.0.0 --port $${PORT:-8000}
 
 stream:
 	$(PY) scripts/simulate_stream.py

@@ -1,27 +1,12 @@
-class TestCalibration:
-    """Calibration tests to ensure post-calibration improvements.
-
-    Checks that Brier score and negative log-likelihood do not regress after
-    calibration on a dedicated split, within a seeded and reproducible setup.
-    """
-
-    def test_brier_improves(self) -> None:
-        """Brier score after calibration should be less than or equal to before."""
-        pass
-
-    def test_nll_improves(self) -> None:
-        """NLL after calibration should be less than or equal to before."""
-        pass
+import json
+from pathlib import Path
 
 
-"""
-Calibration tests skeleton.
-
-Verifies that calibration improves Brier/NLL on a held-out calibration
-split with fixed seeds (non-regression behavior).
-"""
-
-
-def test_calibration_improves_loss_skeleton() -> None:
-    """Placeholder for calibration non-regression test."""
-    pass
+def test_calibration_losses_not_worse() -> None:
+    p = Path("models/metrics_offline.json")
+    assert p.exists(), "Run training before tests."
+    d = json.loads(p.read_text())
+    pre = d.get("metrics_pre", {})
+    post = d.get("metrics_post", {})
+    assert post.get("brier", 1.0) <= pre.get("brier", 1.0)
+    assert post.get("nll", 1.0) <= pre.get("nll", 1.0)

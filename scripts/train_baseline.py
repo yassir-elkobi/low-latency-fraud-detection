@@ -9,7 +9,6 @@ import pandas as pd
 from joblib import dump
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     average_precision_score,
@@ -18,9 +17,10 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.calibration import calibration_curve
+from scripts.common import load_dataset as common_load_dataset, temporal_split as common_temporal_split, \
+    build_preprocessor as common_build_preprocessor, compute_metrics as common_compute_metrics
 
 
 class BaselineTrainer:
@@ -38,80 +38,7 @@ class BaselineTrainer:
     def __init__(self, random_state: int = 42) -> None:
         self.random_state = random_state
 
-    # ---------------------------- Data ----------------------------
-    def load_dataset(self, path: str | None = None, sample_frac: float | None = None) -> pd.DataFrame:
-        """Load Credit Card Fraud dataset from local CSV.
-
-        Expects file at data/creditcard.csv (or provided path).
-        """
-        if path is None:
-            path = "data/creditcard.csv"
-
-        csv_path = Path(path)
-        if not csv_path.exists():
-            raise FileNotFoundError(f"Dataset not found at {csv_path}. Place creditcard.csv in data/.")
-
-        df = pd.read_csv(csv_path)
-
-        if "Time" not in df.columns or "Class" not in df.columns:
-            raise ValueError("Dataset must contain 'Time' and 'Class' columns.")
-
-        if sample_frac is not None and 0 < sample_frac < 1:
-            df = df.sample(frac=sample_frac, random_state=self.random_state).sort_values("Time")
-
-        return df.sort_values("Time").reset_index(drop=True)
-
-    def temporal_split(
-            self,
-            df: pd.DataFrame,
-            ratios: Tuple[float, float, float, float] = (0.6, 0.1, 0.1, 0.2),
-    ) -> Tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series, pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]:
-        """Temporal split into train, valid, calibration, test.
-
-        Splits strictly by increasing Time. Drops Time from features.
-        """
-        if not np.isclose(sum(ratios), 1.0):
-            raise ValueError("Ratios must sum to 1.0")
-
-        df_sorted = df.sort_values("Time").reset_index(drop=True)
-        n = len(df_sorted)
-        n_train = int(n * ratios[0])
-        n_valid = int(n * ratios[1])
-        n_calib = int(n * ratios[2])
-        n_test = n - n_train - n_valid - n_calib
-        if min(n_train, n_valid, n_calib, n_test) <= 0:
-            raise ValueError("Temporal split produced an empty segment; reduce ratios or increase data.")
-
-        parts = np.cumsum([n_train, n_valid, n_calib])
-        df_train = df_sorted.iloc[: parts[0]]
-        df_valid = df_sorted.iloc[parts[0]: parts[1]]
-        df_calib = df_sorted.iloc[parts[1]: parts[2]]
-        df_test = df_sorted.iloc[parts[2]:]
-
-        feature_cols = [c for c in df.columns if c not in {"Class", "Time"}]
-
-        X_train, y_train = df_train[feature_cols], df_train["Class"].astype(int)
-        X_valid, y_valid = df_valid[feature_cols], df_valid["Class"].astype(int)
-        X_calib, y_calib = df_calib[feature_cols], df_calib["Class"].astype(int)
-        X_test, y_test = df_test[feature_cols], df_test["Class"].astype(int)
-        return X_train, y_train, X_valid, y_valid, X_calib, y_calib, X_test, y_test
-
     # ------------------------ Modeling ------------------------
-    def build_preprocessor(self, numeric_cols: List[str]) -> ColumnTransformer:
-        """Numeric imputation + scaling on provided columns."""
-        numeric_pipeline = Pipeline(
-            steps=[
-                ("impute", SimpleImputer(strategy="median")),
-                ("scale", StandardScaler(with_mean=True, with_std=True)),
-            ]
-        )
-        pre = ColumnTransformer(
-            transformers=[
-                ("num", numeric_pipeline, numeric_cols),
-            ],
-            remainder="drop",
-        )
-        return pre
 
     def candidate_models(self, pre: ColumnTransformer) -> List[Tuple[str, Dict[str, Any]]]:
         """Return a small set of model configs to try on the valid split."""
@@ -241,14 +168,15 @@ class BaselineTrainer:
             sample_frac: float | None = None,
     ) -> None:
         # Load
-        df = self.load_dataset(path=data_path, sample_frac=sample_frac)
+        df = common_load_dataset(path=data_path)
 
         # Split
-        X_train, y_train, X_valid, y_valid, X_cal, y_cal, X_test, y_test = self.temporal_split(df, ratios=split_ratios)
+        X_train, y_train, X_valid, y_valid, X_cal, y_cal, X_test, y_test = common_temporal_split(df,
+                                                                                                 ratios=split_ratios)
 
         # Preprocessor and candidates
         numeric_cols = list(X_train.columns)
-        pre = self.build_preprocessor(numeric_cols)
+        pre = common_build_preprocessor(numeric_cols)
         candidates = self.candidate_models(pre)
 
         # Select base on valid
@@ -261,12 +189,12 @@ class BaselineTrainer:
 
         # Raw scores on test (pre-calibration)
         p_test_raw = base_model.predict_proba(X_test)[:, 1]
-        metrics_raw = self.evaluate_offline(y_test.to_numpy(), p_test_raw)
+        metrics_raw = common_compute_metrics(y_test.to_numpy(), p_test_raw)
 
         # Calibrate on calibration split and evaluate
         calib_model, calib_meta = self.calibrate(base_model, X_cal, y_cal)
         p_test_cal = calib_model.predict_proba(X_test)[:, 1]
-        metrics_cal = self.evaluate_offline(y_test.to_numpy(), p_test_cal)
+        metrics_cal = common_compute_metrics(y_test.to_numpy(), p_test_cal)
 
         # Save reliability diagrams
         artifacts_path = Path(artifacts_dir)

@@ -1,6 +1,7 @@
 # Low-Latency Fraud Detection
 
-Real-time fraud detection microservice with calibrated ML models, tail-latency monitoring (P50/P95/P99), and streaming evaluation under drift. Built for production-grade decisioning with conformal prediction guarantees.
+Real-time fraud detection microservice with calibrated ML models, tail-latency monitoring (P50/P95/P99), and streaming
+evaluation under drift. Built for production-grade decisioning with conformal prediction guarantees.
 
 ## Quickstart
 
@@ -8,13 +9,13 @@ Real-time fraud detection microservice with calibrated ML models, tail-latency m
 2. make install
 3. python scripts/train_baseline.py
 4. (optional) make stream
-5. (later) serve via uvicorn once app factory is implemented
+5. make serve # http://localhost:8000 (dashboard at /)
 
 ## Layout
 
 - app/: FastAPI app, routers, schemas, state, metrics, dashboard assets
 - scripts/: training, offline eval, streaming simulator, data download
-- tests/: API, latency, calibration tests (skeletons)
+- tests/: API, latency, calibration tests
 - data/, models/, artifacts/: inputs and outputs (git-kept via .gitkeep)
 
 ## Metrics (report)
@@ -30,3 +31,14 @@ Part of RCP209 (Machine Learning) coursework at CNAM Paris, focused on productio
 - Dataset: Credit Card Fraud Detection (ULB/Kaggle)
 - Report: English, covering calibration, conformal prediction, and streaming evaluation
 - Key differentiators: P95 latency budgets, coverage guarantees under drift
+
+## API
+
+- GET `/health`: status + model metadata
+- POST `/predict`: `{features: [... or {name:value}]}` → `{proba,label,latency_ms}`
+- GET `/metrics`: `{count,p50_ms,p95_ms,p99_ms,rps}`
+
+## CI
+
+- Workflow runs: training → offline evaluation → streaming simulation (bounded) → tests
+- Job summary includes offline metrics table and streaming final coverage

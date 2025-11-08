@@ -1,27 +1,25 @@
-class TestLatency:
-    """Latency metric tests using synthetic request loads.
-
-    Verifies that p50 ≤ p95 ≤ p99 order holds and that latency metrics fall
-    within plausible bounds under synthetic load generation.
-    """
-
-    def test_percentile_ordering(self) -> None:
-        """Percentiles should be non-decreasing (p50 ≤ p95 ≤ p99)."""
-        pass
-
-    def test_bounds(self) -> None:
-        """Latency values should be non-negative and within expected ranges."""
-        pass
+from fastapi.testclient import TestClient
+from joblib import load
+from app.main import create_app
 
 
-"""
-Latency metrics tests skeleton.
+def _features_payload():
+    model = load("models/model.joblib")
+    pre = model.base_estimator.named_steps.get("pre") if hasattr(model, "base_estimator") else model.named_steps.get(
+        "pre")
+    cols = list(pre.transformers_[0][2])
+    return {"features": {c: 0.0 for c in cols}}
 
-Exercises the latency ring buffer under synthetic load and verifies the
-ordering of percentiles (p50 ≤ p95 ≤ p99) and plausible bounds.
-"""
 
-
-def test_latency_percentiles_order_skeleton() -> None:
-    """Placeholder for percentile order property test."""
-    pass
+def test_latency_percentiles() -> None:
+    client = TestClient(create_app())
+    payload = _features_payload()
+    # Warm-up and generate load
+    for _ in range(50):
+        client.post("/predict", json=payload)
+    r = client.get("/metrics")
+    assert r.status_code == 200
+    m = r.json()
+    assert m["count"] >= 50
+    assert m["p50_ms"] <= m["p95_ms"] <= m["p99_ms"]
+    assert m["p50_ms"] >= 0.0 and m["p99_ms"] >= 0.0

@@ -1,21 +1,9 @@
-from typing import Any, Dict
-
-
-class PredictRouter:
-    """Router for prediction endpoints serving calibrated probabilities.
-
-    Exposes a POST endpoint that accepts feature vectors or mappings and
-    returns the predicted probability, hard label, and measured latency.
-    """
-
-    def register(self) -> None:
-        """Register the /predict route on the FastAPI application/router."""
-        pass
-
-    def predict(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate input payload and return the prediction response schema."""
-        pass
-
+from typing import Any, List
+import time
+import pandas as pd
+from fastapi import APIRouter, HTTPException
+from ..state import AppState
+from ..schemas import PredictIn, PredictOut
 
 """
 Prediction endpoint router skeleton.
@@ -24,12 +12,51 @@ Provides a POST /predict endpoint to score incoming feature vectors with
 the calibrated model and return probability, hard label, and latency.
 """
 
-from ..schemas import PredictIn, PredictOut
-
 
 class PredictRouter:
     """Router encapsulating prediction-related endpoints."""
 
+    def __init__(self, state: AppState) -> None:
+        self.state = state
+        self.router = APIRouter()
+        self.router.add_api_route("/predict", self.predict, methods=["POST"], response_model=PredictOut)
+
+    def _expected_columns(self, model: Any) -> List[str]:
+        # Pipeline preprocessor is step 'pre' with ColumnTransformer whose third item is the column list
+        try:
+            pre = model.base_estimator.named_steps.get("pre") if hasattr(model,
+                                                                         "base_estimator") else model.named_steps.get(
+                "pre")
+            cols = pre.transformers_[0][2]
+            return list(cols)
+        except Exception:
+            raise HTTPException(status_code=500, detail="Model preprocessor columns could not be determined")
+
     def predict(self, payload: PredictIn) -> PredictOut:
         """Score the input features and return probability, label, and latency."""
-        pass
+        model = self.state.get_model()
+        if model is None:
+            raise HTTPException(status_code=503, detail="Model not loaded")
+
+        features = payload.features
+        expected_cols = self._expected_columns(model)
+
+        if isinstance(features, list):
+            if len(features) != len(expected_cols):
+                raise HTTPException(status_code=400,
+                                    detail=f"Expected {len(expected_cols)} features, got {len(features)}")
+            df = pd.DataFrame([features], columns=expected_cols)
+        else:
+            missing = [c for c in expected_cols if c not in features]
+            if missing:
+                raise HTTPException(status_code=400, detail=f"Missing features: {missing}")
+            # Order columns
+            row = [features[c] for c in expected_cols]
+            df = pd.DataFrame([row], columns=expected_cols)
+
+        t0 = time.perf_counter()
+        proba = float(model.predict_proba(df)[:, 1][0])
+        label = int(proba >= 0.5)
+        latency_ms = (time.perf_counter() - t0) * 1000.0
+        self.state.get_latency_buffer().append(latency_ms)
+        return PredictOut(proba=proba, label=label, latency_ms=latency_ms)
