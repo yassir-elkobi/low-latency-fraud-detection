@@ -6,8 +6,8 @@ from app.main import create_app
 
 def _expected_columns_from_model(model) -> List[str]:
     try:
-        pre = model.base_estimator.named_steps.get("pre") if hasattr(model,
-                                                                     "base_estimator") else model.named_steps.get("pre")
+        underlying = getattr(model, "estimator", None) or getattr(model, "base_estimator", None) or model
+        pre = underlying.named_steps.get("pre")
         return list(pre.transformers_[0][2])
     except Exception as exc:
         raise AssertionError(f"Could not extract expected columns from model: {exc}")

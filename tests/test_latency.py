@@ -5,8 +5,8 @@ from app.main import create_app
 
 def _features_payload():
     model = load("models/model.joblib")
-    pre = model.base_estimator.named_steps.get("pre") if hasattr(model, "base_estimator") else model.named_steps.get(
-        "pre")
+    underlying = getattr(model, "estimator", None) or getattr(model, "base_estimator", None) or model
+    pre = underlying.named_steps.get("pre")
     cols = list(pre.transformers_[0][2])
     return {"features": {c: 0.0 for c in cols}}
 

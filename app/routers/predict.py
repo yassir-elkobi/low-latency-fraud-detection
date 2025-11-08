@@ -22,15 +22,20 @@ class PredictRouter:
         self.router.add_api_route("/predict", self.predict, methods=["POST"], response_model=PredictOut)
 
     def _expected_columns(self, model: Any) -> List[str]:
-        # Pipeline preprocessor is step 'pre' with ColumnTransformer whose third item is the column list
+        # Resolve underlying Pipeline regardless of CalibratedClassifierCV wrapper
         try:
-            pre = model.base_estimator.named_steps.get("pre") if hasattr(model,
-                                                                         "base_estimator") else model.named_steps.get(
-                "pre")
-            cols = pre.transformers_[0][2]
+            underlying = None
+            if hasattr(model, "estimator"):
+                underlying = getattr(model, "estimator")
+            elif hasattr(model, "base_estimator"):
+                underlying = getattr(model, "base_estimator")
+            else:
+                underlying = model
+            pre = underlying.named_steps.get("pre")  # type: ignore[attr-defined]
+            cols = pre.transformers_[0][2]  # type: ignore[index]
             return list(cols)
-        except Exception:
-            raise HTTPException(status_code=500, detail="Model preprocessor columns could not be determined")
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Model preprocessor columns could not be determined: {exc}")
 
     def predict(self, payload: PredictIn) -> PredictOut:
         """Score the input features and return probability, label, and latency."""
