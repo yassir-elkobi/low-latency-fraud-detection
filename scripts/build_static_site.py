@@ -15,7 +15,7 @@ def main() -> None:
     site_dir.mkdir(parents=True, exist_ok=True)
     assets_dir.mkdir(parents=True, exist_ok=True)
 
-    # Load metrics
+    # Load metrics (demo or real)
     metrics_path = models_dir / 'metrics_offline.json'
     metrics = {}
     if metrics_path.exists():

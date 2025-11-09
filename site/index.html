@@ -5,48 +5,48 @@
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
     <title>StreamScore – Offline & Streaming Results</title>
     <style>
-        body {{
+        body {
             font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
             margin: 1.5rem;
-        }}
+        }
 
-        h1 {{
+        h1 {
             margin-bottom: 0.5rem;
-        }}
+        }
 
-        table {{
+        table {
             border-collapse: collapse;
             margin-top: 1rem;
-        }}
+        }
 
-        th, td {{
+        th, td {
             border: 1px solid #ddd;
             padding: 0.5rem 0.75rem;
-        }}
+        }
 
-        .grid {{
+        .grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
             gap: 1rem;
             margin-top: 1rem;
-        }}
+        }
 
-        .card {{
+        .card {
             border: 1px solid #eee;
             border-radius: 8px;
             padding: 1rem;
-        }}
+        }
 
-        img {{
+        img {
             max-width: 100%;
             height: auto;
             border: 1px solid #eee;
             border-radius: 6px;
-        }}
+        }
 
-        .muted {{
+        .muted {
             color: #666;
-        }}
+        }
     </style>
     <meta name="robots" content="noindex"/>
     <meta name="description" content="StreamScore CI snapshot"/>
@@ -55,7 +55,7 @@
 </head>
 <body>
 <h1>StreamScore – CI Snapshot</h1>
-<div class="muted">Base: {base_label} · Calibration: {calib_method}</div>
+<div class="muted">Base: LR(C=1.0) · Calibration: isotonic</div>
 
 <table>
     <thead>
@@ -68,23 +68,23 @@
     <tbody>
     <tr>
         <td>ROC-AUC</td>
-        <td>{roc_auc_pre}</td>
-        <td>{roc_auc_post}</td>
+        <td>0.98</td>
+        <td>0.976</td>
     </tr>
     <tr>
         <td>PR-AUC</td>
-        <td>{pr_auc_pre}</td>
-        <td>{pr_auc_post}</td>
+        <td>0.74</td>
+        <td>0.732</td>
     </tr>
     <tr>
         <td>Brier</td>
-        <td>{brier_pre}</td>
-        <td>{brier_post}</td>
+        <td>0.023</td>
+        <td>0.00047</td>
     </tr>
     <tr>
         <td>NLL</td>
-        <td>{nll_pre}</td>
-        <td>{nll_post}</td>
+        <td>0.1</td>
+        <td>0.0039</td>
     </tr>
     </tbody>
 </table>
@@ -92,15 +92,15 @@
 <div class="grid">
     <div class="card">
         <h3>Reliability (pre)</h3>
-        {reliability_pre}
+        <div class="muted">Missing</div>
     </div>
     <div class="card">
         <h3>Reliability (post)</h3>
-        {reliability_post}
+        <div class="muted">Missing</div>
     </div>
     <div class="card">
         <h3>Streaming coverage</h3>
-        {stream_coverage}
+        <div class="muted">Run streaming to generate</div>
     </div>
 </div>
 
