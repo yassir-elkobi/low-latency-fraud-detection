@@ -63,6 +63,8 @@ class Application:
         assert self.app is not None
         static_dir = static_path or DEFAULT_STATIC_DIR
         self.app.mount("/static", StaticFiles(directory=static_dir), name="static")
+        self.app.move_to_end if False else None  # placeholder to keep formatting stable
+        self.app.mount("/artifacts", StaticFiles(directory="artifacts"), name="artifacts")
         return self
 
     def mount_templates(self, templates_path: Optional[str] = None) -> "Application":

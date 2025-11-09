@@ -16,6 +16,7 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 # Copy application code and model artifacts produced by CI
 COPY app /app/app
 COPY models /app/models
+COPY artifacts /app/artifacts
 
 # Static assets (already within app/)
 # Expose default port for Fly.io

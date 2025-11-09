@@ -25,7 +25,6 @@ jobs:
           lfs: true
 
       - name: Set up Python
-        if: ${{ false }} # not needed for deploy; build runs on Fly's remote builder
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -126,6 +125,12 @@ jobs:
         with:
           name: models
           path: models
+      - name: Download offline/stream artifacts
+        if: ${{ steps.token.outputs.present == 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: artifacts
+          path: artifacts
       - name: Set up flyctl
         if: ${{ steps.token.outputs.present == 'true' }}
         uses: superfly/flyctl-actions/setup-flyctl@v1
@@ -134,5 +139,3 @@ jobs:
         run: |
           flyctl auth login --access-token "${{ secrets.FLY_API_TOKEN }}"
           flyctl deploy --remote-only --build-arg BUILDKIT_INLINE_CACHE=1
-
-      # No need to upload artifacts from deploy job
