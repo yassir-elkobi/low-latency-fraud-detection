@@ -1,0 +1,102 @@
+name: CI
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+
+jobs:
+  train-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUNBUFFERED: "1"
+      MPLBACKEND: "Agg"
+
+    steps:
+      - name: Checkout (with LFS)
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Train baseline and calibrate
+        run: |
+          python -m scripts.train_baseline
+
+      - name: Evaluate offline
+        run: |
+          python -m scripts.evaluate_offline
+
+      - name: Streaming simulation (bounded)
+        run: |
+          python -m scripts.simulate_stream --alpha 0.05 --mode window --window 2000 --label_delay 200 --max_events 20000
+
+      - name: Summarize results
+        run: |
+          python - <<'PY'
+          import json, pathlib, os
+          lines = []
+          # Offline
+          mp = pathlib.Path('models/metrics_offline.json')
+          if mp.exists():
+            d = json.loads(mp.read_text())
+            pre = d.get('metrics_pre', {})
+            post = d.get('metrics_post', {})
+            base = d.get('base_model', {})
+            calib = d.get('calibration', {})
+            lines.append("### LowLatencyFraudDetection Offline Metrics\n")
+            lines.append(f"- Base: {base.get('label','?')}  |  Valid AP: {base.get('valid_ap','?')}\n")
+            lines.append(f"- Calibration: {calib.get('calibration_method','?')}\n")
+            lines.append("| Metric | Pre | Post |")
+            lines.append("|---|---:|---:|")
+            for k in ("roc_auc","pr_auc","brier","nll"):
+              lines.append(f"| {k} | {pre.get(k,'-')} | {post.get(k,'-')} |")
+            lines.append("") 
+          # Streaming
+          sp = pathlib.Path('artifacts/stream_summary.json')
+          if sp.exists():
+            s = json.loads(sp.read_text())
+            lines.append("### Streaming Coverage")
+            lines.append(f"- Mode: {s.get('mode')} | Alpha: {s.get('alpha')} | Label delay: {s.get('label_delay')}")
+            lines.append(f"- Final coverage: {s.get('final_coverage')} | Final violation rate: {s.get('final_violation_rate')}\n")
+          if lines:
+            with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write("\n".join(lines) + "\n")
+          PY
+      - name: Run tests
+        run: |
+          pytest -q
+
+      - name: Upload model artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: models
+          path: |
+            models/**
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload plots/artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts
+          path: |
+            artifacts/**
+          if-no-files-found: warn
+          retention-days: 7

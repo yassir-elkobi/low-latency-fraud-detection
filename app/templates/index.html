@@ -1,0 +1,23 @@
+<!--
+Minimal dashboard template (served by FastAPI).
+Displays latency percentiles (p50/p95/p99), throughput, and streaming coverage.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>LowLatencyFraudDetection Dashboard</title>
+    <link rel="stylesheet" href="/static/css/styles.css"/>
+</head>
+<body>
+<div id="app">
+    <h1>LowLatencyFraudDetection</h1>
+    <div id="cards"></div>
+    <canvas id="latencyChart"></canvas>
+    <h2 style="margin-top:1rem;">Streaming Coverage</h2>
+    <canvas id="coverageChart"></canvas>
+</div>
+<script src="/static/js/dashboard.js"></script>
+</body>
+</html>
