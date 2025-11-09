@@ -43,6 +43,8 @@ function start() {
     initCoverageChart();
     refreshCoverage();
     setInterval(refreshCoverage, 3000);
+    refreshOffline();
+    setInterval(refreshOffline, 30000);
 }
 
 document.addEventListener('DOMContentLoaded', start);
@@ -171,5 +173,77 @@ function drawCoverageChart() {
         if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.stroke();
+}
+
+// --- Offline metrics & images ---
+async function refreshOffline() {
+    const container = document.getElementById('offlineMetrics');
+    const imgContainer = document.getElementById('offlineImages');
+    if (!container || !imgContainer) return;
+    try {
+        const data = await fetchJSON('/metrics/offline');
+        const pre = data.metrics_pre || {};
+        const post = data.metrics_post || {};
+        const art = (data.artists || data.artifacts || {});
+        // Build metrics table
+        const rows = [
+            ['ROC-AUC', pre.roc_auc, post.roc_auc],
+            ['PR-AUC', pre.pr_auc, post.pr_auc],
+            ['Brier', pre.brier, post.brier],
+            ['NLL', pre.nll, post.nll],
+        ];
+        let html = '<table><thead><tr><th>Metric</th><th>Pre</th><th>Post</th></tr></thead><tbody>';
+        for (const [k, a, b] of rows) {
+            const fa = (a ?? '-');
+            const fb = (b ?? '-');
+            html += `<tr><td>${k}</td><td>${Number.isFinite(fa) ? Number(fa).toFixed(4) : fa}</td><td>${Number.isFinite(fb) ? Number(fb).toFixed(4) : fb}</td></tr>`;
+        }
+        html += '</tbody></table>';
+        container.innerHTML = html;
+        // Images
+        const imgs = [];
+        if (data?.artifacts?.roc) imgs.push({title: 'ROC', src: `/${data.artifacts.roc}?t=${Date.now()}`});
+        if (data?.artifacts?.pr) imgs
+        include = true, imgs.push({title: 'PR', src: `/${data.artifacts.pr}?t=${Date.now()}`});
+        if (data?.artifacts?.reality_check) {
+        }
+        imgContainer.innerHTML = '';
+        const maybe = [
+            {key: 'reliability_pre', label: 'Reliability (pre)'},
+            {key: 'reliability_post', label: 'Reliability (post)'},
+            {key: 'roc', label: 'ROC'},
+            {key: 'pr', label: 'PR'},
+            {key: 'hist', label: 'Score histogram'},
+        ];
+        for (const {key, label} of maybe) {
+            const url = data?.artifacts?.[key];
+            if (!url) continue;
+            const card = document.createElement('div');
+            card.className = 'card';
+            const img = document.createElement('img');
+            img.src = `/${url}?t=${Date.now()}`;
+            img.alt = label;
+            const h = document.createElement('h3');
+            h.textContent = label;
+            card.appendChild(h);
+            card.appendChild(img);
+            imgContainer.appendChild(card);
+        }
+        // Update stream image (if exists)
+        const streamImg = document.getElementById('affh_stream_img') || document.getElementById('streamImg');
+        if (streamImg) {
+            const url = '/artifacts/stream_coverage.png';
+            // Optimistically set; if 404, ignore
+            fetch(url, {method: 'HEAD'})
+                .then(resp => {
+                    if (resp.ok) {
+                        streamImg.src = `${url}?t=${Date.now()}`;
+                    }
+                })
+                .catch(() => {
+                });
+        }
+    } catch (e) {
+    }
 }
 

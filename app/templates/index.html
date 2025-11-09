@@ -15,8 +15,18 @@ Displays latency percentiles (p50/p95/p99), throughput, and streaming coverage.
     <h1>LowLatencyFraudDetection</h1>
     <div id="cards"></div>
     <canvas id="latencyChart"></canvas>
+
+    <h2 style="margin-top:1rem;">Offline Metrics</h2>
+    <div id="offlineMetrics" class="card"></div>
+    <div id="offlineImages" class="grid" style="margin-top:0.5rem;"></div>
+
     <h2 style="margin-top:1rem;">Streaming Coverage</h2>
     <canvas id="coverageChart"></canvas>
+    <div style="margin-top:0.5rem">
+        <em class="muted">Latest coverage image:</em>
+        <div><img id="streamImg" src="" alt="stream coverage"
+                  style="max-width:480px;border:1px solid #eee;border-radius: 6px;"/></div>
+    </div>
 </div>
 <script src="/static/js/dashboard.js"></script>
 </body>

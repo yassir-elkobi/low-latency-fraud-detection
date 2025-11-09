@@ -10,6 +10,5 @@ build/
 venv/
 .env
 data/
-artifacts/
 site/
 
