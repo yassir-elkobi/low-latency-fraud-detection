@@ -1,3 +1,3 @@
 """
-Application package initializer for StreamScore.
+Application package initializer for LowLatencyFraudDetection.
 """

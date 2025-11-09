@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from joblib import load
-from scripts.common import load_dataset, temporal_split
-from collections import deque
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Deque, List
 import argparse
 import json
+from collections import deque
+from dataclasses import dataclass
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from joblib import load
+from pathlib import Path
+from typing import Any, Deque, Dict, List, Tuple
+from scripts.common import load_dataset, temporal_split
 
 
 def weighted_quantile(values: np.ndarray, weights: np.ndarray, q: float) -> float:
@@ -142,44 +142,49 @@ class StreamSimulator:
         }
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Streaming conformal simulator")
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Streaming Conformal Simulator")
     parser.add_argument("--alpha", type=float, default=0.05)
     parser.add_argument("--mode", choices=["window", "exp"], default="window")
     parser.add_argument("--window", type=int, default=2000)
     parser.add_argument("--decay", type=float, default=0.01)
     parser.add_argument("--label_delay", type=int, default=200)
     parser.add_argument("--max_events", type=int, default=0, help="Limit number of streamed events (0 = no limit)")
-    args = parser.parse_args()
+    return parser.parse_args()
 
+
+def load_test_split(max_events: int) -> Tuple[pd.DataFrame, pd.Series]:
     df = load_dataset()
     _, _, _, _, _, _, X_test, y_test = temporal_split(df)
-    if args.max_events and args.max_events > 0:
-        X_test = X_test.iloc[: args.max_events]
-        y_test = y_test.iloc[: args.max_events]
+    if max_events and max_events > 0:
+        X_test = X_test.iloc[: max_events]
+        y_test = y_test.iloc[: max_events]
+    return X_test, y_test
+
+
+def predict_probabilities(X: pd.DataFrame) -> np.ndarray:
     clf = load("models/model.joblib")
-    probs = clf.predict_proba(X_test)[:, 1]
+    return clf.predict_proba(X)[:, 1]
 
-    sim = StreamSimulator(alpha=args.alpha, mode=args.mode, window=args.window, decay=args.decay,
-                          label_delay=args.label_delay)
-    log = sim.simulate(probs=probs, y_true=y_test.to_numpy())
 
-    out = Path("artifacts")
-    out.mkdir(parents=True, exist_ok=True)
-    # Plot
+def plot_coverage(log: Dict[str, Any], alpha: float, out_dir: Path) -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(7, 4))
     ax.plot(log["idx"], log["coverage"], label="coverage")
-    ax.axhline(1.0 - args.alpha, color="red", ls="--", label="target 1-α")
-    ax.set_xlabel("events");
-    ax.set_ylabel("coverage");
-    ax.legend();
-    ax.set_title("Streaming coverage")
-    fig.tight_layout();
-    fig.savefig(out / "stream_coverage.png");
+    ax.axhline(1.0 - alpha, color="red", ls="--", label="target 1-α")
+    ax.set_xlabel("events")
+    ax.set_ylabel("coverage")
+    ax.legend()
+    ax.set_title("Streaming Coverage")
+    fig.tight_layout()
+    png_path = out_dir / "stream_coverage.png"
+    fig.savefig(png_path)
     plt.close(fig)
+    return png_path
 
-    # Save CSV + summary
-    pd.DataFrame(log).to_csv(out / "streaming_metrics.csv", index=False)
+
+def save_outputs(log: Dict[str, Any], args: argparse.Namespace, out_dir: Path) -> None:
+    pd.DataFrame(log).to_csv(out_dir / "streaming_metrics.csv", index=False)
     summary = {
         "alpha": args.alpha,
         "mode": args.mode,
@@ -189,44 +194,25 @@ def main() -> None:
         "final_coverage": log["final_coverage"],
         "final_violation_rate": log["final_violation_rate"],
         "artifacts": {
-            "stream_coverage": str((out / "stream_coverage.png").as_posix()),
-            "streaming_metrics": str((out / "streaming_metrics.csv").as_posix()),
+            "stream_coverage": str((out_dir / "stream_coverage.png").as_posix()),
+            "streaming_metrics": str((out_dir / "streaming_metrics.csv").as_posix()),
         },
     }
-    (out / "stream_summary.json").write_text(json.dumps(summary, indent=2))
-    print("Streaming summary:", json.dumps(summary, indent=2))
+    (out_dir / "stream_summary.json").write_text(json.dumps(summary, indent=2))
+    print("Streaming Summary:", json.dumps(summary, indent=2))
+
+
+def main() -> None:
+    args = parse_args()
+    X_test, y_test = load_test_split(args.max_events)
+    probs = predict_probabilities(X_test)
+    sim = StreamSimulator(alpha=args.alpha, mode=args.mode, window=args.window, decay=args.decay,
+                          label_delay=args.label_delay)
+    log = sim.simulate(probs=probs, y_true=y_test.to_numpy())
+    out = Path("artifacts")
+    plot_coverage(log, args.alpha, out)
+    save_outputs(log, args, out)
 
 
 if __name__ == "__main__":
     main()
-
-"""
-Streaming simulation skeleton with label delays and drift.
-
-Replays events in chronological order, simulates label delays, maintains
-sliding-window or exponentially decayed calibration for coverage/violations,
-and produces diagnostic plots for ablation studies.
-"""
-
-from typing import Any, Dict, Iterator, Tuple
-
-
-class StreamSimulator:
-    """Encapsulates event replay, online calibration, and coverage tracking."""
-
-    def event_stream(self, df: Any, label_delay: float | int, order_by: str) -> Iterator[Dict[str, Any]]:
-        """Yield events with features and (delayed) labels according to order."""
-        pass
-
-    def update_coverage_window(self, scores: list[float], labels: list[int], alpha: float, window: int) -> Dict[
-        str, float]:
-        """Update and compute coverage and violation rates within a window."""
-        pass
-
-    def inject_drift(self, df: Any, kind: str, severity: float) -> Any:
-        """Inject controlled distributional drift for analysis."""
-        pass
-
-    def plot_results(self, log: Any, out_dir: str) -> None:
-        """Render streaming coverage/violation figures over time."""
-        pass

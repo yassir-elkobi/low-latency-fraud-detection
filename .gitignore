@@ -18,13 +18,10 @@ venv/
 .DS_Store
 
 # Project data/artifacts
-data/*
-!data/.gitkeep
 !data/creditcard.csv
+data/*
 models/*
-!models/.gitkeep
 artifacts/*
-!artifacts/.gitkeep
 
 # Node (if any)
 node_modules/

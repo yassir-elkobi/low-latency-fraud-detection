@@ -7,7 +7,7 @@ import time
 
 
 class AppState:
-    """Centralized application state for the StreamScore service.
+    """Centralized application state for the LowLatencyFraudDetection service.
 
     Owns the calibrated model artifact, minimal model metadata, and the shared
     latency ring buffer used for tail-latency metrics. Provides simple accessors

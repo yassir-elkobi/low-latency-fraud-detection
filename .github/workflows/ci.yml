@@ -1,9 +1,8 @@
 name: CI
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 on:
   push:
@@ -14,6 +13,10 @@ on:
 jobs:
   train-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUNBUFFERED: "1"
+      MPLBACKEND: "Agg"
 
     steps:
       - name: Checkout (with LFS)
@@ -44,42 +47,37 @@ jobs:
         run: |
           python -m scripts.simulate_stream --alpha 0.05 --mode window --window 2000 --label_delay 200 --max_events 20000
 
-      - name: Summarize offline metrics
+      - name: Summarize results
         run: |
           python - <<'PY'
           import json, pathlib, os
-          p = pathlib.Path('models/metrics_offline.json')
-          d = json.loads(p.read_text())
-          pre = d.get('metrics_pre', {})
-          post = d.get('metrics_post', {})
-          base = d.get('base_model', {})
-          calib = d.get('calibration', {})
           lines = []
-          lines.append(f"### StreamScore Offline Metrics\n")
-          lines.append(f"- Base: {base.get('label','?')}  |  Valid AP: {base.get('valid_ap','?')}\n")
-          lines.append(f"- Calibration: {calib.get('calibration_method','?')}\n")
-          lines.append("")
-          lines.append("| Metric | Pre | Post |")
-          lines.append("|---|---:|---:|")
-          for k in ("roc_auc","pr_auc","brier","nll"):
-            lines.append(f"| {k} | {pre.get(k,'-')} | {post.get(k,'-')} |")
-          summary = "\n".join(lines)
-          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
-            f.write(summary + "\n")
-          PY
-      - name: Summarize streaming coverage
-        run: |
-          python - <<'PY'
-          import json, os, pathlib
-          p = pathlib.Path('artifacts/stream_summary.json')
-          if p.exists():
-            d = json.loads(p.read_text())
-            lines = []
-            lines.append('### Streaming Coverage')
-            lines.append(f"- Mode: {d.get('mode')} | Alpha: {d.get('alpha')} | Label delay: {d.get('label_delay')}")
-            lines.append(f"- Final coverage: {d.get('final_coverage')} | Final violation rate: {d.get('final_violation_rate')}")
+          # Offline
+          mp = pathlib.Path('models/metrics_offline.json')
+          if mp.exists():
+            d = json.loads(mp.read_text())
+            pre = d.get('metrics_pre', {})
+            post = d.get('metrics_post', {})
+            base = d.get('base_model', {})
+            calib = d.get('calibration', {})
+            lines.append("### LowLatencyFraudDetection Offline Metrics\n")
+            lines.append(f"- Base: {base.get('label','?')}  |  Valid AP: {base.get('valid_ap','?')}\n")
+            lines.append(f"- Calibration: {calib.get('calibration_method','?')}\n")
+            lines.append("| Metric | Pre | Post |")
+            lines.append("|---|---:|---:|")
+            for k in ("roc_auc","pr_auc","brier","nll"):
+              lines.append(f"| {k} | {pre.get(k,'-')} | {post.get(k,'-')} |")
+            lines.append("") 
+          # Streaming
+          sp = pathlib.Path('artifacts/stream_summary.json')
+          if sp.exists():
+            s = json.loads(sp.read_text())
+            lines.append("### Streaming Coverage")
+            lines.append(f"- Mode: {s.get('mode')} | Alpha: {s.get('alpha')} | Label delay: {s.get('label_delay')}")
+            lines.append(f"- Final coverage: {s.get('final_coverage')} | Final violation rate: {s.get('final_violation_rate')}\n")
+          if lines:
             with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
-              f.write('\n'.join(lines) + '\n')
+              f.write("\n".join(lines) + "\n")
           PY
       - name: Run tests
         run: |
@@ -92,6 +90,7 @@ jobs:
           path: |
             models/**
           if-no-files-found: warn
+          retention-days: 7
 
       - name: Upload plots/artifacts
         uses: actions/upload-artifact@v4
@@ -100,28 +99,4 @@ jobs:
           path: |
             artifacts/**
           if-no-files-found: warn
-
-      - name: Build static site
-        run: |
-          python -m scripts.build_static_site
-
-      - name: Upload Pages artifact
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-
-  deploy:
-    runs-on: ubuntu-latest
-    needs: train-and-test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-        continue-on-error: true
-
-
+          retention-days: 7

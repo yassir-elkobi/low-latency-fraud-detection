@@ -18,7 +18,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 from pathlib import Path
-from typing import Any, Dict, Tuple, List
+from typing import Any, Dict
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import GradientBoostingClassifier
 from scripts.common import load_dataset as common_load_dataset, temporal_split as common_temporal_split, \

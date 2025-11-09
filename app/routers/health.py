@@ -1,4 +1,3 @@
-from typing import Any, Dict
 from fastapi import APIRouter
 from ..state import AppState
 from ..schemas import HealthOut

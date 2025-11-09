@@ -26,7 +26,3 @@ lint:
 
 fmt:
 	@echo "Add your formatter (e.g., black) if desired"
-
-.PHONY: site
-site:
-	$(PY) -m scripts.build_static_site

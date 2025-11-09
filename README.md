@@ -41,4 +41,4 @@ Part of RCP209 (Machine Learning) coursework at CNAM Paris, focused on productio
 ## CI
 
 - Workflow runs: training → offline evaluation → streaming simulation (bounded) → tests
-- Job summary includes offline metrics table and streaming final coverage
+- The live dashboard is served by FastAPI locally (no static site generated in CI)
