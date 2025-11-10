@@ -82,7 +82,6 @@ def main() -> None:
             raise SystemExit(f"Invalid --example JSON: {exc}")
     else:
         # Fallback: minimal payload expecting features list of zeros
-        # Users should pass --example for accurate load tests.
         payload = {"features": [0] * 30}
     result = run_load(args.host, args.port, args.concurrency, args.duration, payload)
     print(json.dumps(result, indent=2))
@@ -90,5 +89,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
