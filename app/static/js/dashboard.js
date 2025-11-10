@@ -458,10 +458,13 @@ async function refreshAblation() {
                 });
             }
         }
+        const btn = document.getElementById('genAblationBtn');
         if (!rows || !rows.length) {
+            if (btn) btn.style.display = 'inline-block';
             container.innerHTML = '<div class="muted">No ablation results available yet.</div>';
             return;
         }
+        if (btn) btn.style.display = 'none';
         // Render concise table: Param, Value, Coverage, Violation, n_eff
         let html = '<table><thead><tr><th>Mode</th><th>Param</th><th>Value</th><th>Coverage</th><th>Violation</th><th>n_eff</th></tr></thead><tbody>';
         for (const r of rows) {
