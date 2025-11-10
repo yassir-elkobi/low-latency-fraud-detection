@@ -73,4 +73,30 @@ canvas {
     margin-bottom: 0.75rem;
 }
 
+/* Tabs */
+.tab-btn {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #ddd;
+    background: #fafafa;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.tab-btn.active {
+    background: #eef6ff;
+    border-color: #bcd7ff;
+}
+
+.tab-section {
+    /* sections toggled via JS by setting display block/none */
+}
+
+.code {
+    background: #f8f8f8;
+    border: 1px solid #eee;
+    border-radius: 6px;
+    padding: 0.5rem;
+    overflow: auto;
+}
+
 

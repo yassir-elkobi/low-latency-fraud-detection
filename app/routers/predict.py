@@ -20,6 +20,7 @@ class PredictRouter:
         self.state = state
         self.router = APIRouter()
         self.router.add_api_route("/predict", self.predict, methods=["POST"], response_model=PredictOut)
+        self.router.add_api_route("/predict/schema", self.schema, methods=["GET"])
 
     def _expected_columns(self, model: Any) -> List[str]:
         # Resolve underlying Pipeline regardless of CalibratedClassifierCV wrapper
@@ -65,3 +66,12 @@ class PredictRouter:
         latency_ms = (time.perf_counter() - t0) * 1000.0
         self.state.get_latency_buffer().append(latency_ms)
         return PredictOut(proba=proba, label=label, latency_ms=latency_ms)
+
+    def schema(self) -> Any:
+        """Return expected feature columns and an example payload."""
+        model = self.state.get_model()
+        if model is None:
+            raise HTTPException(status_code=503, detail="Model not loaded")
+        cols = self._expected_columns(model)
+        example = {"features": {c: 0 for c in cols}}
+        return {"expected_columns": cols, "example": example}

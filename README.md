@@ -41,14 +41,17 @@ Part of RCP209 (Machine Learning) coursework at CNAM Paris, focused on productio
 ## CI
 
 - Workflow runs: training → offline evaluation → streaming simulation (bounded) → tests
-- The live dashboard is served by FastAPI locally (no static site generated in CI)
+- The live dashboard is served by FastAPI locally
 
 ## Deploy (Fly.io)
 
 Prereqs:
-- Create a Fly.io app (`low-latency-fraud-detection`), generate an App Deploy Token, add it as repo secret: `FLY_API_TOKEN`.
+
+- Create a Fly.io app (`low-latency-fraud-detection`), generate an App Deploy Token, add it as repo secret:
+  `FLY_API_TOKEN`.
 
 Deploy on push to main (CI will):
+
 - train the model (produces `models/model.joblib`),
 - build Docker image and `flyctl deploy`,
 - expose at `https://low-latency-fraud-detection.fly.dev`.

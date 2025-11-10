@@ -36,6 +36,7 @@ async function refresh() {
 }
 
 function start() {
+    initTabs();
     ensureCards();
     initChart();
     refresh();
@@ -53,6 +54,14 @@ function start() {
     setInterval(refreshOffline, 30000);
     refreshAblation();
     setInterval(refreshAblation, 30000);
+    const btnH = document.getElementById('refreshHealth');
+    if (btnH) btnH.addEventListener('click', refreshHealth);
+    const btnM = document.getElementById('refreshMetrics');
+    if (btnM) btnM.addEventListener('click', refreshMetrics);
+    const btnEx = document.getElementById('loadPredictExample');
+    if (btnEx) btnEx.addEventListener('click', loadPredictExample);
+    const btnSend = document.getElementById('sendPredict');
+    if (btnSend) btnSend.addEventListener('click', sendPredict);
 }
 
 document.addEventListener('DOMContentLoaded', start);
@@ -75,6 +84,26 @@ function assignFigure(titleId, captionId, titleText, captionText) {
     else num = figureNumbering.next++;
     t.textContent = `Figure ${num}: ${titleText}`;
     c.textContent = captionText;
+}
+
+// --- Tabs ---
+function initTabs() {
+    const nav = document.getElementById('nav');
+    if (!nav) return;
+    nav.addEventListener('click', (e) => {
+        const btn = e.target.closest('.tab-btn');
+        if (!btn) return;
+        const tab = btn.dataset.tab;
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        ['dashboard', 'health', 'predict'].forEach(name => {
+            const sec = document.getElementById(`section-${name}`);
+            if (sec) sec.style.display = (name === tab) ? 'block' : 'none';
+        });
+        // include metrics tab
+        const m = document.getElementById('section-metrics');
+        if (m) m.style.display = (tab === 'metrics') ? 'block' : 'none';
+    });
 }
 
 function initChart() {
@@ -126,6 +155,16 @@ function updateChart(metrics) {
             if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
         }
         ctx.stroke();
+    }
+}
+
+async function refreshMetrics() {
+    try {
+        const data = await fetchJSON('/metrics');
+        const pre = document.getElementById('metricsJson');
+        if (pre) pre.textContent = JSON.stringify(data, null, 2);
+    } catch (e) {
+        console.error('Failed to fetch metrics', e);
     }
 }
 
@@ -245,6 +284,10 @@ async function refreshOffline() {
     const imgContainer = document.getElementById('offlineImages');
     if (!container || !imgContainer) return;
     try {
+        // Reset figure numbering for offline images on each refresh so numbers stay stable
+        if (typeof figureNumbering !== 'undefined' && figureNumbering && typeof figureNumbering.next === 'number') {
+            figureNumbering.next = 3;
+        }
         const data = await fetchJSON('/metrics/offline');
         const pre = data.metrics_pre || {};
         const post = data.metrics_post || {};
@@ -264,13 +307,7 @@ async function refreshOffline() {
         html += '</tbody></table>';
         container.innerHTML = html;
         imgContainer.innerHTML = '';
-        const maybe = [
-            {key: 'reliability_pre', label: 'Reliability (pre)'},
-            {key: 'reliability_post', label: 'Reliability (post)'},
-            {key: 'roc', label: 'ROC'},
-            {key: 'pr', label: 'PR'},
-            {key: 'hist', label: 'Score histogram'},
-        ];
+        const maybe = [];
         const descriptions = {
             reliability_pre: 'Reliability diagram before calibration.',
             reliability_post: 'Reliability diagram after calibration.',
@@ -278,6 +315,82 @@ async function refreshOffline() {
             pr: 'Precision–Recall (PR) curve.',
             hist: 'Predicted score histogram.',
         };
+        // Pair reliability images if both exist
+        const relPre = data?.artifacts?.['reliability_pre'];
+        const relPost = data?.artifacts?.['reliability_post'];
+        if (relPre && relPost) {
+            const row = document.createElement('div');
+            row.className = 'grid two-col';
+            const items = [
+                {key: 'reliability_pre', label: 'Reliability (pre)', url: relPre},
+                {key: 'reliability_post', label: 'Reliability (post)', url: relPost},
+            ];
+            for (const it of items) {
+                const card = document.createElement('div');
+                card.className = 'card';
+                const img = document.createElement('img');
+                img.src = `/${it.url}?t=${Date.now()}`;
+                img.alt = it.label;
+                const h = document.createElement('h3');
+                const num = figureNumbering.next++;
+                h.textContent = `Figure ${num}: ${it.label}`;
+                const p = document.createElement('p');
+                p.className = 'figure-caption';
+                p.textContent = descriptions[it.key] || 'Figure.';
+                card.appendChild(h);
+                card.appendChild(img);
+                card.appendChild(p);
+                row.appendChild(card);
+            }
+            imgContainer.appendChild(row);
+        }
+        // Pair ROC and PR side by side if both exist
+        const rocUrl = data?.artifacts?.['roc'];
+        const prUrl = data?.artifacts?.['pr'];
+        if (rocUrl && prUrl) {
+            const row = document.createElement('div');
+            row.className = 'grid two-col';
+            const items = [
+                {key: 'roc', label: 'ROC', url: rocUrl},
+                {key: 'pr', label: 'PR', url: prUrl},
+            ];
+            for (const it of items) {
+                const card = document.createElement('div');
+                card.className = 'card';
+                const img = document.createElement('img');
+                img.src = `/${it.url}?t=${Date.now()}`;
+                img.alt = it.label;
+                const h = document.createElement('h3');
+                const num = figureNumbering.next++;
+                h.textContent = `Figure ${num}: ${it.label}`;
+                const p = document.createElement('p');
+                p.className = 'figure-caption';
+                p.textContent = descriptions[it.key] || 'Figure.';
+                card.appendChild(h);
+                card.appendChild(img);
+                card.appendChild(p);
+                row.appendChild(card);
+            }
+            imgContainer.appendChild(row);
+        }
+        // Place histogram next to Streaming Coverage if slot exists
+        const histUrl = data?.artifacts?.['hist'];
+        const histSlot = document.getElementById('histSlot');
+        if (histUrl && histSlot) {
+            histSlot.innerHTML = '';
+            const h = document.createElement('h3');
+            const num = figureNumbering.next++;
+            h.textContent = `Figure ${num}: Score histogram`;
+            const img = document.createElement('img');
+            img.src = `/${histUrl}?t=${Date.now()}`;
+            img.alt = 'Score histogram';
+            const p = document.createElement('p');
+            p.className = 'figure-caption';
+            p.textContent = descriptions['hist'];
+            histSlot.appendChild(h);
+            histSlot.appendChild(img);
+            histSlot.appendChild(p);
+        }
         for (const {key, label} of maybe) {
             const url = data?.artifacts?.[key];
             if (!url) continue;
@@ -359,6 +472,50 @@ async function refreshAblation() {
         container.innerHTML = html;
     } catch (e) {
         console.error('Failed to refresh ablation', e);
+    }
+}
+
+// --- Health & Predict ---
+async function refreshHealth() {
+    try {
+        const data = await fetchJSON('/health');
+        const pre = document.getElementById('healthJson');
+        if (pre) pre.textContent = JSON.stringify(data, null, 2);
+    } catch (e) {
+        console.error('Failed to fetch health', e);
+    }
+}
+
+async function loadPredictExample() {
+    try {
+        const data = await fetchJSON('/predict/schema');
+        const ta = document.getElementById('predictPayload');
+        if (ta) ta.value = JSON.stringify(data.example, null, 2);
+    } catch (e) {
+        console.error('Failed to load example schema', e);
+    }
+}
+
+async function sendPredict() {
+    try {
+        const ta = document.getElementById('predictPayload');
+        const out = document.getElementById('predictOut');
+        if (!ta) return;
+        const payload = JSON.parse(ta.value);
+        const res = await fetch('/predict', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+        });
+        const text = await res.text();
+        try {
+            const json = JSON.parse(text);
+            if (out) out.textContent = JSON.stringify(json, null, 2);
+        } catch (_) {
+            if (out) out.textContent = text;
+        }
+    } catch (e) {
+        console.error('Failed to send prediction', e);
     }
 }
 

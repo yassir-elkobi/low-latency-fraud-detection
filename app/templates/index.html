@@ -13,34 +13,77 @@ Displays latency percentiles (p50/p95/p99), throughput, and streaming coverage.
 <body>
 <div id="app">
     <h1>Low Latency Fraud Detection</h1>
-    <div id="cards"></div>
-    <h3 id="latencyTitle" class="figure-title"></h3>
-    <canvas id="latencyChart"></canvas>
-    <div id="latencyCaption" class="figure-caption"></div>
-
-    <h2 style="margin-top:1rem;">Offline Metrics</h2>
-    <div id="offlineMetrics" class="card"></div>
-    <div id="offlineImages" class="grid two-col" style="margin-top:0.5rem;"></div>
-
-    <h2 style="margin-top:1rem;">Streaming Coverage</h2>
-    <div id="streamConfig" class="muted" style="margin-bottom:0.5rem;"></div>
-    <div id="streamStats" class="card" style="margin-bottom:0.5rem;"></div>
-    <h3 id="coverageTitle" class="figure-title"></h3>
-    <canvas id="coverageChart"></canvas>
-    <div id="coverageCaption" class="figure-caption"></div>
-    <div style="margin-top:0.5rem">
-        <em class="muted">Latest coverage image:</em>
-        <div><img id="streamImg" src="" alt="stream coverage"
-                  style="max-width:480px;border:1px solid #eee;border-radius: 6px;"/></div>
-        <div style="margin-top:0.5rem">
-            <a href="/artifacts/stream_coverage.png" target="_blank">Download stream_coverage.png</a> ·
-            <a href="/artifacts/streaming_metrics.csv" target="_blank">Download streaming_metrics.csv</a> ·
-            <a href="/artifacts/stream_summary.json" target="_blank">Download stream_summary.json</a>
-        </div>
+    <div id="nav" style="display:flex; gap:0.5rem; justify-content:center; margin-bottom:1rem;">
+        <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+        <button class="tab-btn" data-tab="metrics">Metrics</button>
+        <button class="tab-btn" data-tab="health">Health</button>
+        <button class="tab-btn" data-tab="predict">Predict</button>
     </div>
 
-    <h2 style="margin-top:1rem;">Streaming Ablation</h2>
-    <div id="ablationTable" class="card"></div>
+    <div id="section-dashboard" class="tab-section" style="display:block;">
+        <div id="cards"></div>
+        <div class="grid two-col">
+            <div id="latencyBlock">
+                <h3 id="latencyTitle" class="figure-title"></h3>
+                <canvas id="latencyChart"></canvas>
+                <div id="latencyCaption" class="figure-caption"></div>
+            </div>
+            <div>
+                <h2>Offline Metrics</h2>
+                <div id="offlineMetrics" class="card"></div>
+            </div>
+        </div>
+        <div id="offlineImages" class="grid two-col" style="margin-top:0.5rem;"></div>
+
+        <h2 style="margin-top:1rem;">Streaming Coverage</h2>
+        <div id="streamConfig" class="muted" style="margin-bottom:0.5rem;"></div>
+        <div id="streamStats" class="card" style="margin-bottom:0.5rem;"></div>
+        <div class="grid two-col">
+            <div id="coverageBlock">
+                <h3 id="coverageTitle" class="figure-title"></h3>
+                <canvas id="coverageChart"></canvas>
+                <div id="coverageCaption" class="figure-caption"></div>
+            </div>
+            <div id="histSlot" class="card"></div>
+        </div>
+        <div style="margin-top:0.5rem">
+            <em class="muted">Latest coverage image:</em>
+            <div><img id="streamImg" src="" alt="stream coverage"
+                      style="max-width:480px;border:1px solid #eee;border-radius: 6px;"/></div>
+            <div style="margin-top:0.5rem">
+                <a href="/artifacts/stream_coverage.png" target="_blank">Download stream_coverage.png</a> ·
+                <a href="/artifacts/streaming_metrics.csv" target="_blank">Download streaming_metrics.csv</a> ·
+                <a href="/artifacts/stream_summary.json" target="_blank">Download stream_summary.json</a>
+            </div>
+        </div>
+
+        <h2 style="margin-top:1rem;">Streaming Ablation</h2>
+        <div id="ablationTable" class="card"></div>
+    </div>
+
+    <div id="section-metrics" class="tab-section" style="display:none;">
+        <h2>Service Metrics (/metrics)</h2>
+        <button id="refreshMetrics">Refresh</button>
+        <pre id="metricsJson" class="code"></pre>
+    </div>
+
+    <div id="section-health" class="tab-section" style="display:none;">
+        <h2>Health</h2>
+        <button id="refreshHealth">Refresh</button>
+        <pre id="healthJson" class="code"></pre>
+    </div>
+
+    <div id="section-predict" class="tab-section" style="display:none;">
+        <h2>Predict</h2>
+        <div style="margin-bottom:0.5rem;">
+            <button id="loadPredictExample">Load example payload</button>
+        </div>
+        <textarea id="predictPayload" rows="10" style="width:100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;"></textarea>
+        <div style="margin-top:0.5rem;">
+            <button id="sendPredict">Send</button>
+        </div>
+        <pre id="predictOut" class="code"></pre>
+    </div>
 </div>
 <script src="/static/js/dashboard.js"></script>
 </body>
