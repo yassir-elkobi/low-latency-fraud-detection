@@ -38,7 +38,8 @@ class AppState:
         p = Path(model_path)
         if not p.exists():
             raise FileNotFoundError(f"Model artifact not found at {p}")
-        model = load(p)
+        # Memory-map the model file to reduce RSS and avoid OOM on small VMs
+        model = load(p, mmap_mode="r")
         with self._lock:  # type: ignore[arg-type]
             self._model = model
             self._model_info.update({
