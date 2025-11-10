@@ -93,9 +93,14 @@ class StreamSimulator:
 
     def simulate(self, probs: np.ndarray, y_true: np.ndarray) -> Dict[str, Any]:
         pending: Deque[Tuple[int, int]] = deque()
-        total = covered = violations = 0
+        total = covered = 0
+        total_pos = covered_pos = 0
+        total_neg = covered_neg = 0
+        sum_set_size = 0.0
         idx_hist: List[int] = []
         cov_hist: List[float] = []
+        cov_pos_hist: List[float] = []
+        cov_neg_hist: List[float] = []
         viol_hist: List[float] = []
 
         for i, p1 in enumerate(probs):
@@ -115,17 +120,28 @@ class StreamSimulator:
                 tau_eval = self.buf.quantile(self.q)
                 if np.isnan(tau_eval):
                     in_set = True
+                    set_size = 2
                 else:
                     in_set = (yj == 1 and pj >= (1.0 - tau_eval)) or (yj == 0 and (1.0 - pj) >= (1.0 - tau_eval))
+                    set_size = int(pj >= (1.0 - tau_eval)) + int((1.0 - pj) >= (1.0 - tau_eval))
                 # Now update buffer with its nonconformity score
                 self.buf.add(s)
                 total += 1
                 covered += int(in_set)
-                violations += int(not in_set)
+                sum_set_size += float(set_size)
+                if yj == 1:
+                    total_pos += 1
+                    covered_pos += int(in_set)
+                else:
+                    total_neg += 1
+                    covered_neg += int(in_set)
                 if total >= self.warmup:
                     idx_hist.append(total)
                     cov_hist.append(covered / total)
-                    viol_hist.append(violations / total)
+                    # instantaneous violation rate (1 - coverage) for display; final_violation_rate will use target gap
+                    viol_hist.append(1.0 - (covered / total))
+                    cov_pos_hist.append((covered_pos / total_pos) if total_pos > 0 else float("nan"))
+                    cov_neg_hist.append((covered_neg / total_neg) if total_neg > 0 else float("nan"))
 
         # flush
         while pending:
@@ -135,23 +151,46 @@ class StreamSimulator:
             tau_eval = self.buf.quantile(self.q)
             if np.isnan(tau_eval):
                 in_set = True
+                set_size = 2
             else:
                 in_set = (yj == 1 and pj >= (1.0 - tau_eval)) or (yj == 0 and (1.0 - pj) >= (1.0 - tau_eval))
+                set_size = int(pj >= (1.0 - tau_eval)) + int((1.0 - pj) >= (1.0 - tau_eval))
             self.buf.add(s)
             total += 1
             covered += int(in_set)
-            violations += int(not in_set)
+            sum_set_size += float(set_size)
+            if yj == 1:
+                total_pos += 1
+                covered_pos += int(in_set)
+            else:
+                total_neg += 1
+                covered_neg += int(in_set)
             if total >= self.warmup:
                 idx_hist.append(total)
                 cov_hist.append(covered / total)
-                viol_hist.append(violations / total)
+                viol_hist.append(1.0 - (covered / total))
+                cov_pos_hist.append((covered_pos / total_pos) if total_pos > 0 else float("nan"))
+                cov_neg_hist.append((covered_neg / total_neg) if total_neg > 0 else float("nan"))
 
+        final_cov = cov_hist[-1] if cov_hist else None
+        final_cov_pos = cov_pos_hist[-1] if cov_pos_hist else None
+        final_cov_neg = cov_neg_hist[-1] if cov_neg_hist else None
+        avg_set_size = (sum_set_size / total) if total > 0 else None
+        # Violation relative to target (zero if over-covered)
+        final_violation_gap = None
+        if final_cov is not None:
+            final_violation_gap = max(0.0, (1.0 - self.alpha) - float(final_cov))
         return {
             "idx": idx_hist,
             "coverage": cov_hist,
+            "coverage_pos": cov_pos_hist,
+            "coverage_neg": cov_neg_hist,
             "violations": viol_hist,
-            "final_coverage": cov_hist[-1] if cov_hist else None,
-            "final_violation_rate": viol_hist[-1] if viol_hist else None,
+            "final_coverage": final_cov,
+            "final_coverage_pos": final_cov_pos,
+            "final_coverage_neg": final_cov_neg,
+            "final_violation_rate": final_violation_gap,
+            "avg_set_size": avg_set_size,
             "effective_n": self.buf.effective_n(),
             "warmup": self.warmup,
         }
@@ -213,7 +252,10 @@ def save_outputs(log: Dict[str, Any], args: argparse.Namespace, out_dir: Path) -
         "label_delay": args.label_delay,
         "warmup": args.warmup,
         "final_coverage": log["final_coverage"],
+        "final_coverage_pos": log.get("final_coverage_pos"),
+        "final_coverage_neg": log.get("final_coverage_neg"),
         "final_violation_rate": log["final_violation_rate"],
+        "avg_set_size": log.get("avg_set_size"),
         "effective_n": log.get("effective_n"),
         "artifacts": {
             "stream_coverage": str((out_dir / "stream_coverage.png").as_posix()),
@@ -249,6 +291,8 @@ def main() -> None:
                     "value": w,
                     "final_coverage": log_w.get("final_coverage"),
                     "final_violation_rate": log_w.get("final_violation_rate"),
+                    "final_coverage_pos": log_w.get("final_coverage_pos"),
+                    "avg_set_size": log_w.get("avg_set_size"),
                     "effective_n": log_w.get("effective_n"),
                     "warmup": args.warmup,
                     "label_delay": args.label_delay,
@@ -266,6 +310,8 @@ def main() -> None:
                     "value": d,
                     "final_coverage": log_d.get("final_coverage"),
                     "final_violation_rate": log_d.get("final_violation_rate"),
+                    "final_coverage_pos": log_d.get("final_coverage_pos"),
+                    "avg_set_size": log_d.get("avg_set_size"),
                     "effective_n": log_d.get("effective_n"),
                     "warmup": args.warmup,
                     "label_delay": args.label_delay,

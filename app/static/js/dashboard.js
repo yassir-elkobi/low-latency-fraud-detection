@@ -174,6 +174,7 @@ async function refreshMetrics() {
 const coverageState = {
     idx: [],
     cov: [],
+    covPos: [],
 };
 
 function initCoverageChart() {
@@ -196,6 +197,7 @@ async function refreshCoverage() {
         ]);
         coverageState.idx = data.idx;
         coverageState.cov = data.coverage;
+        coverageState.covPos = Array.isArray(data.coverage_pos) ? data.coverage_pos : [];
         drawCoverageChart();
         if (summary) {
             const el = document.getElementById('streamConfig');
@@ -219,9 +221,12 @@ async function refreshCoverage() {
             const statsEl = document.getElementById('streamStats');
             if (statsEl) {
                 const latest = Array.isArray(coverageState.cov) && coverageState.cov.length ? coverageState.cov[coverageState.cov.length - 1] : null;
+                const latestPos = Array.isArray(coverageState.covPos) && coverageState.covPos.length ? coverageState.covPos[coverageState.covPos.length - 1] : null;
                 const targetPct = ((1 - (summary.alpha ?? 0.05)) * 100).toFixed(1);
                 const actualPct = latest != null ? (latest * 100).toFixed(1) : '-';
-                statsEl.textContent = `Coverage (target ${targetPct}%): ${actualPct}%`;
+                const fraudPct = latestPos != null && Number.isFinite(latestPos) ? (latestPos * 100).toFixed(1) : '-';
+                const avgSet = summary.avg_set_size != null ? Number(summary.avg_set_size).toFixed(2) : '-';
+                statsEl.textContent = `Coverage (target ${targetPct}%): ${actualPct}% · Fraud: ${fraudPct}% · Avg set size: ${avgSet}`;
             }
         }
     } catch (e) {
@@ -239,9 +244,11 @@ function drawCoverageChart() {
     canvas.height = h;
 
     const vals = coverageState.cov;
+    const valsPos = coverageState.covPos && coverageState.covPos.length ? coverageState.covPos : [];
     if (vals.length < 2) return;
-    const minY = Math.max(0, Math.min(...vals) - 0.05);
-    const maxY = Math.min(1, Math.max(...vals) + 0.05);
+    const allVals = valsPos.length ? vals.concat(valsPos.filter(v => Number.isFinite(v))) : vals;
+    const minY = Math.max(0, Math.min(...allVals) - 0.05);
+    const maxY = Math.min(1, Math.max(...allVals) + 0.05);
 
     // axes
     ctx.clearRect(0, 0, w, h);
@@ -265,6 +272,18 @@ function drawCoverageChart() {
         if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.stroke();
+
+    // fraud-class coverage line (if available)
+    if (valsPos.length > 1) {
+        ctx.strokeStyle = '#6a0dad'; // purple
+        ctx.beginPath();
+        for (let i = 0; i < valsPos.length; i++) {
+            const x = 40 + (i / (valsPos.length - 1)) * (w - 50);
+            const y = (h - 20) - ((valsPos[i] - minY) / (maxY - minY)) * (h - 30);
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+    }
 
     // target line at 0.95 if within range
     const target = 0.95;
@@ -465,8 +484,8 @@ async function refreshAblation() {
             return;
         }
         if (btn) btn.style.display = 'none';
-        // Render concise table: Param, Value, Coverage, Violation, n_eff
-        let html = '<table><thead><tr><th>Mode</th><th>Param</th><th>Value</th><th>Coverage</th><th>Violation</th><th>n_eff</th></tr></thead><tbody>';
+        // Render concise table: Param, Value, Coverage, Under-coverage gap (target - cov), n_eff
+        let html = '<table><thead><tr><th>Mode</th><th>Param</th><th>Value</th><th>Coverage</th><th>Violation (target gap)</th><th>n_eff</th></tr></thead><tbody>';
         for (const r of rows) {
             const cov = r.final_coverage != null ? Number(r.final_coverage).toFixed(4) : '-';
             const viol = r.final_violation_rate != null ? Number(r.final_violation_rate).toFixed(4) : '-';

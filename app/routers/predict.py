@@ -64,7 +64,6 @@ class PredictRouter:
         proba = float(model.predict_proba(df)[:, 1][0])
         label = int(proba >= 0.5)
         latency_ms = (time.perf_counter() - t0) * 1000.0
-        self.state.get_latency_buffer().append(latency_ms)
         return PredictOut(proba=proba, label=label, latency_ms=latency_ms)
 
     def schema(self) -> Any:

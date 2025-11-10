@@ -7,16 +7,22 @@ evaluation under drift. Built for production-grade decisioning with conformal pr
 
 1. python3 -m venv .venv && source .venv/bin/activate
 2. make install
-3. python scripts/train_baseline.py
+3. python -m scripts.train_baseline
 4. (optional) make stream
 5. make serve # http://localhost:8000 (dashboard at /)
 
 ## Layout
 
 - app/: FastAPI app, routers, schemas, state, metrics, dashboard assets
-- scripts/: training, offline eval, streaming simulator, data download
+- scripts/: training, offline eval, streaming simulator, shared utilities
 - tests/: API, latency, calibration tests
 - data/, models/, artifacts/: inputs and outputs (git-kept via .gitkeep)
+
+## Data splits (offline)
+
+- Train/Valid: select base model on a held-out valid split (e.g., AP); then refit base on train+valid.
+- Calibrate: fit `CalibratedClassifierCV(..., cv="prefit")` on the calibration split only.
+- Test: report ROC-AUC, PR-AUC, Brier, and NLL on the test split only.
 
 ## Metrics (report)
 

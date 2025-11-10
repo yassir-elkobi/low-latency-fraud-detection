@@ -60,11 +60,16 @@ class ServiceMetricsRouter:
         df = pd.read_csv(path)
         if limit and limit > 0:
             df = df.tail(limit)
-        return {
+        out: Dict[str, List[float]] = {
             "idx": df["idx"].astype(float).tolist(),
             "coverage": df["coverage"].astype(float).tolist(),
             "violations": df["violations"].astype(float).tolist(),
         }
+        if "coverage_pos" in df.columns:
+            out["coverage_pos"] = df["coverage_pos"].astype(float).tolist()
+        if "coverage_neg" in df.columns:
+            out["coverage_neg"] = df["coverage_neg"].astype(float).tolist()
+        return out
 
     def run_ablation(self) -> Dict[str, Any]:
         """Kick off streaming ablation in a background process.

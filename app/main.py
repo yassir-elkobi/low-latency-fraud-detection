@@ -81,11 +81,13 @@ class Application:
 
         @self.app.middleware("http")
         async def latency_middleware(request: Request, call_next):  # type: ignore[override]
-            t0 = time.perf_counter()
+            t0_ns = time.perf_counter_ns()
             response = await call_next(request)
-            latency_ms = (time.perf_counter() - t0) * 1000.0
+            dt_ms = (time.perf_counter_ns() - t0_ns) / 1_000_000.0
             try:
-                self.state.get_latency_buffer().append(latency_ms)  # type: ignore[union-attr]
+                # Record only /predict POST requests to avoid polluting with health/metrics
+                if request.method == "POST" and request.url.path == "/predict":
+                    self.state.get_latency_buffer().append(dt_ms)  # type: ignore[union-attr]
             except Exception:
                 # Never let metrics recording break requests
                 pass
