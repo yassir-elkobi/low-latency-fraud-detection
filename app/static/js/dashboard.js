@@ -62,6 +62,8 @@ function start() {
     if (btnEx) btnEx.addEventListener('click', loadPredictExample);
     const btnSend = document.getElementById('sendPredict');
     if (btnSend) btnSend.addEventListener('click', sendPredict);
+    const btnAbl = document.getElementById('genAblationBtn');
+    if (btnAbl) btnAbl.addEventListener('click', generateAblation);
 }
 
 document.addEventListener('DOMContentLoaded', start);
@@ -457,7 +459,7 @@ async function refreshAblation() {
             }
         }
         if (!rows || !rows.length) {
-            container.textContent = 'No ablation results found. Run simulate_stream with --ablate.';
+            container.innerHTML = '<div class="muted">No ablation results available yet.</div>';
             return;
         }
         // Render concise table: Param, Value, Coverage, Violation, n_eff
@@ -472,6 +474,36 @@ async function refreshAblation() {
         container.innerHTML = html;
     } catch (e) {
         console.error('Failed to refresh ablation', e);
+    }
+}
+
+async function generateAblation() {
+    const btn = document.getElementById('genAblationBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Running...';
+    }
+    try {
+        await fetch('/metrics/stream/ablate', {method: 'POST'});
+        // poll for results
+        const poll = setInterval(async () => {
+            await refreshAblation();
+            const container = document.getElementById('ablationTable');
+            if (container && container.querySelector('table')) {
+                clearInterval(poll);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = 'Generate ablation';
+                }
+            }
+        }, 5000);
+        setTimeout(() => clearInterval(poll), 15 * 60 * 1000); // safety stop after 15 min
+    } catch (e) {
+        console.error('Failed to start ablation', e);
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Generate ablation';
+        }
     }
 }
 

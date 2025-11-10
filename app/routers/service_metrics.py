@@ -1,6 +1,8 @@
 from typing import Any, Dict, List
 import json
 from pathlib import Path
+import subprocess
+import sys
 import pandas as pd
 from fastapi import APIRouter, HTTPException
 from ..state import AppState
@@ -23,6 +25,7 @@ class ServiceMetricsRouter:
         self.router.add_api_route("/metrics", self.get_metrics, methods=["GET"], response_model=MetricsOut)
         self.router.add_api_route("/metrics/offline", self.get_offline_metrics, methods=["GET"])
         self.router.add_api_route("/metrics/stream", self.get_stream_metrics, methods=["GET"])
+        self.router.add_api_route("/metrics/stream/ablate", self.run_ablation, methods=["POST"])
 
     def get_metrics(self) -> MetricsOut:
         """Return latency percentiles and request counters for observability."""
@@ -62,3 +65,15 @@ class ServiceMetricsRouter:
             "coverage": df["coverage"].astype(float).tolist(),
             "violations": df["violations"].astype(float).tolist(),
         }
+
+    def run_ablation(self) -> Dict[str, Any]:
+        """Kick off streaming ablation in a background process.
+
+        Runs `python -m scripts.simulate_stream --ablate` and returns immediately.
+        """
+        cmd = [sys.executable, "-m", "scripts.simulate_stream", "--ablate"]
+        try:
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to start ablation: {exc}")
+        return {"status": "started"}
