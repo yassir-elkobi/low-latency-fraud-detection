@@ -1,6 +1,7 @@
 from collections import deque
 from threading import Lock
 from typing import Dict, List, Optional
+import time
 
 
 class LatencyRingBuffer:
@@ -14,19 +15,23 @@ class LatencyRingBuffer:
     _maxlen: int
     _buffer: Optional[deque] = None
     _lock: Optional[Lock] = None
+    _timebuffer: Optional[deque] = None
 
     def __init__(self, maxlen: int = 20000) -> None:
         """Initialize a ring buffer with a maximum number of stored entries."""
         self._maxlen = maxlen
         self._buffer = deque(maxlen=maxlen)
         self._lock = Lock()
+        self._timebuffer = deque(maxlen=maxlen)
 
     def append(self, value_ms: float) -> None:
         """Append a new latency value in milliseconds into the ring buffer."""
         if value_ms < 0:
             return
+        now = time.time()
         with self._lock:  # type: ignore[arg-type]
             self._buffer.append(float(value_ms))  # type: ignore[union-attr]
+            self._timebuffer.append(now)  # type: ignore[union-attr]
 
     def snapshot(self) -> List[float]:
         """Return a snapshot copy of the current latency values."""
@@ -58,3 +63,22 @@ class LatencyRingBuffer:
             frac = k - lo
             out[q] = arr[lo] * (1 - frac) + arr[hi] * frac
         return out
+
+    def rps(self, window_seconds: float = 30.0) -> float:
+        """Compute requests-per-second over the last window_seconds."""
+        if window_seconds <= 0:
+            return 0.0
+        now = time.time()
+        cutoff = now - window_seconds
+        with self._lock:  # type: ignore[arg-type]
+            times = list(self._timebuffer)  # type: ignore[union-attr]
+        if not times:
+            return 0.0
+        # Count timestamps within the window
+        count = 0
+        for t in reversed(times):
+            if t >= cutoff:
+                count += 1
+            else:
+                break
+        return float(count) / window_seconds

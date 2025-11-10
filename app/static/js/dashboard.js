@@ -40,11 +40,19 @@ function start() {
     initChart();
     refresh();
     setInterval(refresh, 1500);
+    try {
+        assignFigure('latencyTitle', 'latencyCaption', 'Latency (P95 over time)', 'P95 latency sampled from live requests.');
+        assignFigure('coverageTitle', 'coverageCaption', 'Streaming coverage', 'Streaming conformal coverage vs target (dashed).');
+    } catch (e) {
+        // ignore
+    }
     initCoverageChart();
     refreshCoverage();
     setInterval(refreshCoverage, 3000);
     refreshOffline();
     setInterval(refreshOffline, 30000);
+    refreshAblation();
+    setInterval(refreshAblation, 30000);
 }
 
 document.addEventListener('DOMContentLoaded', start);
@@ -54,6 +62,20 @@ const chartState = {
     values: [],
     maxPoints: 60,
 };
+
+const figureNumbering = {next: 3};
+
+function assignFigure(titleId, captionId, titleText, captionText) {
+    const t = document.getElementById(titleId);
+    const c = document.getElementById(captionId);
+    if (!t || !c) return;
+    let num = 0;
+    if (titleId === 'latencyTitle') num = 1;
+    else if (titleId === 'coverageTitle') num = 2;
+    else num = figureNumbering.next++;
+    t.textContent = `Figure ${num}: ${titleText}`;
+    c.textContent = captionText;
+}
 
 function initChart() {
     const canvas = document.getElementById('latencyChart');
@@ -127,12 +149,41 @@ async function refreshCoverage() {
     const canvas = document.getElementById('coverageChart');
     if (!canvas) return;
     try {
-        const data = await fetchJSON('/metrics/stream?limit=200');
+        const [data, summary] = await Promise.all([
+            fetchJSON('/metrics/stream?limit=200'),
+            fetch('/artifacts/stream_summary.json', {cache: 'no-store'}).then(r => r.ok ? r.json() : null).catch(() => null),
+        ]);
         coverageState.idx = data.idx;
         coverageState.cov = data.coverage;
         drawCoverageChart();
+        if (summary) {
+            const el = document.getElementById('streamConfig');
+            if (el) {
+                const target = (1 - (summary.alpha ?? 0.05));
+                const mode = summary.mode;
+                const windowSize = summary.window;
+                const decay = summary.decay;
+                const delay = summary.label_delay;
+                const warmup = summary.warmup;
+                const nEff = summary.effective_n ? Number(summary.effective_n).toFixed(1) : '-';
+                let cfg = `Target ${(target * 100).toFixed(1)}% · `;
+                if (mode === 'window') {
+                    cfg += `mode=window W=${windowSize}`;
+                } else {
+                    cfg += `mode=exp λ=${decay}`;
+                }
+                cfg += ` · label_delay=${delay} · warmup=${warmup} · n_eff≈${nEff}`;
+                el.textContent = cfg;
+            }
+            const statsEl = document.getElementById('streamStats');
+            if (statsEl) {
+                const latest = Array.isArray(coverageState.cov) && coverageState.cov.length ? coverageState.cov[coverageState.cov.length - 1] : null;
+                const targetPct = ((1 - (summary.alpha ?? 0.05)) * 100).toFixed(1);
+                const actualPct = latest != null ? (latest * 100).toFixed(1) : '-';
+                statsEl.textContent = `Coverage (target ${targetPct}%): ${actualPct}%`;
+            }
+        }
     } catch (e) {
-        // eslint-disable-next-line no-console
         console.error('Failed to refresh streaming coverage', e);
     }
 }
@@ -173,6 +224,19 @@ function drawCoverageChart() {
         if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.stroke();
+
+    // target line at 0.95 if within range
+    const target = 0.95;
+    if (target >= minY && target <= maxY) {
+        const yTarget = (h - 20) - ((target - minY) / (maxY - minY)) * (h - 30);
+        if (ctx.setLineDash) ctx.setLineDash([5, 5]);
+        ctx.strokeStyle = '#e33';
+        ctx.beginPath();
+        ctx.moveTo(40, yTarget);
+        ctx.lineTo(w - 10, yTarget);
+        ctx.stroke();
+        if (ctx.setLineDash) ctx.setLineDash([]);
+    }
 }
 
 // --- Offline metrics & images ---
@@ -184,7 +248,6 @@ async function refreshOffline() {
         const data = await fetchJSON('/metrics/offline');
         const pre = data.metrics_pre || {};
         const post = data.metrics_post || {};
-        const art = (data.artists || data.artifacts || {});
         // Build metrics table
         const rows = [
             ['ROC-AUC', pre.roc_auc, post.roc_auc],
@@ -200,13 +263,6 @@ async function refreshOffline() {
         }
         html += '</tbody></table>';
         container.innerHTML = html;
-        // Images
-        const imgs = [];
-        if (data?.artifacts?.roc) imgs.push({title: 'ROC', src: `/${data.artifacts.roc}?t=${Date.now()}`});
-        if (data?.artifacts?.pr) imgs
-        include = true, imgs.push({title: 'PR', src: `/${data.artifacts.pr}?t=${Date.now()}`});
-        if (data?.artifacts?.reality_check) {
-        }
         imgContainer.innerHTML = '';
         const maybe = [
             {key: 'reliability_pre', label: 'Reliability (pre)'},
@@ -215,6 +271,13 @@ async function refreshOffline() {
             {key: 'pr', label: 'PR'},
             {key: 'hist', label: 'Score histogram'},
         ];
+        const descriptions = {
+            reliability_pre: 'Reliability diagram before calibration.',
+            reliability_post: 'Reliability diagram after calibration.',
+            roc: 'Receiver Operating Characteristic (ROC) curve.',
+            pr: 'Precision–Recall (PR) curve.',
+            hist: 'Predicted score histogram.',
+        };
         for (const {key, label} of maybe) {
             const url = data?.artifacts?.[key];
             if (!url) continue;
@@ -224,9 +287,14 @@ async function refreshOffline() {
             img.src = `/${url}?t=${Date.now()}`;
             img.alt = label;
             const h = document.createElement('h3');
-            h.textContent = label;
+            const num = figureNumbering.next++;
+            h.textContent = `Figure ${num}: ${label}`;
+            const p = document.createElement('p');
+            p.className = 'figure-caption';
+            p.textContent = descriptions[key] || 'Figure.';
             card.appendChild(h);
             card.appendChild(img);
+            card.appendChild(p);
             imgContainer.appendChild(card);
         }
         // Update stream image (if exists)
@@ -244,6 +312,53 @@ async function refreshOffline() {
                 });
         }
     } catch (e) {
+    }
+}
+
+// --- Streaming ablation table ---
+async function refreshAblation() {
+    const container = document.getElementById('ablationTable');
+    if (!container) return;
+    try {
+        // Prefer JSON; fallback to CSV
+        let rows = null;
+        try {
+            const json = await fetchJSON('/artifacts/stream_ablation.json');
+            if (Array.isArray(json)) {
+                rows = json;
+            }
+        } catch (_) {
+        }
+        if (!rows) {
+            const resp = await fetch('/artifacts/stream_ablation.csv', {cache: 'no-store'});
+            if (resp.ok) {
+                const text = await resp.text();
+                const lines = text.trim().split('\n');
+                const header = lines[0].split(',');
+                rows = lines.slice(1).map(line => {
+                    const parts = line.split(',');
+                    const obj = {};
+                    header.forEach((h, i) => obj[h] = parts[i]);
+                    return obj;
+                });
+            }
+        }
+        if (!rows || !rows.length) {
+            container.textContent = 'No ablation results found. Run simulate_stream with --ablate.';
+            return;
+        }
+        // Render concise table: Param, Value, Coverage, Violation, n_eff
+        let html = '<table><thead><tr><th>Mode</th><th>Param</th><th>Value</th><th>Coverage</th><th>Violation</th><th>n_eff</th></tr></thead><tbody>';
+        for (const r of rows) {
+            const cov = r.final_coverage != null ? Number(r.final_coverage).toFixed(4) : '-';
+            const viol = r.final_violation_rate != null ? Number(r.final_violation_rate).toFixed(4) : '-';
+            const neff = r.effective_n != null ? Number(r.effective_n).toFixed(1) : '-';
+            html += `<tr><td>${r.mode}</td><td>${r.param}</td><td>${r.value}</td><td>${cov}</td><td>${viol}</td><td>${neff}</td></tr>`;
+        }
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    } catch (e) {
+        console.error('Failed to refresh ablation', e);
     }
 }
 

@@ -7,26 +7,40 @@ Displays latency percentiles (p50/p95/p99), throughput, and streaming coverage.
 <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>LowLatencyFraudDetection Dashboard</title>
+    <title>Low Latency Fraud Detection Dashboard</title>
     <link rel="stylesheet" href="/static/css/styles.css"/>
 </head>
 <body>
 <div id="app">
-    <h1>LowLatencyFraudDetection</h1>
+    <h1>Low Latency Fraud Detection</h1>
     <div id="cards"></div>
+    <h3 id="latencyTitle" class="figure-title"></h3>
     <canvas id="latencyChart"></canvas>
+    <div id="latencyCaption" class="figure-caption"></div>
 
     <h2 style="margin-top:1rem;">Offline Metrics</h2>
     <div id="offlineMetrics" class="card"></div>
-    <div id="offlineImages" class="grid" style="margin-top:0.5rem;"></div>
+    <div id="offlineImages" class="grid two-col" style="margin-top:0.5rem;"></div>
 
     <h2 style="margin-top:1rem;">Streaming Coverage</h2>
+    <div id="streamConfig" class="muted" style="margin-bottom:0.5rem;"></div>
+    <div id="streamStats" class="card" style="margin-bottom:0.5rem;"></div>
+    <h3 id="coverageTitle" class="figure-title"></h3>
     <canvas id="coverageChart"></canvas>
+    <div id="coverageCaption" class="figure-caption"></div>
     <div style="margin-top:0.5rem">
         <em class="muted">Latest coverage image:</em>
         <div><img id="streamImg" src="" alt="stream coverage"
                   style="max-width:480px;border:1px solid #eee;border-radius: 6px;"/></div>
+        <div style="margin-top:0.5rem">
+            <a href="/artifacts/stream_coverage.png" target="_blank">Download stream_coverage.png</a> ·
+            <a href="/artifacts/streaming_metrics.csv" target="_blank">Download streaming_metrics.csv</a> ·
+            <a href="/artifacts/stream_summary.json" target="_blank">Download stream_summary.json</a>
+        </div>
     </div>
+
+    <h2 style="margin-top:1rem;">Streaming Ablation</h2>
+    <div id="ablationTable" class="card"></div>
 </div>
 <script src="/static/js/dashboard.js"></script>
 </body>

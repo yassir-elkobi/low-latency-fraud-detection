@@ -29,8 +29,8 @@ class ServiceMetricsRouter:
         buf = self.state.get_latency_buffer()
         count = buf.count()
         p = buf.percentiles([50, 95, 99])
-        uptime = getattr(self.state, "uptime_seconds")()
-        rps = float(count / uptime) if uptime > 0 else 0.0
+        # Sliding-window RPS (last 30s) to avoid zero between bursts
+        rps = buf.rps(window_seconds=30.0)
         return MetricsOut(
             count=int(count),
             p50_ms=float(p.get(50, 0.0)),
