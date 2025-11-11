@@ -82,3 +82,19 @@ class LatencyRingBuffer:
             else:
                 break
         return float(count) / window_seconds
+
+    def count_in_window(self, window_seconds: float) -> int:
+        """Count number of entries within the last window_seconds."""
+        if window_seconds <= 0:
+            return 0
+        now = time.time()
+        cutoff = now - window_seconds
+        with self._lock:  # type: ignore[arg-type]
+            times = list(self._timebuffer)  # type: ignore[union-attr]
+        c = 0
+        for t in reversed(times):
+            if t >= cutoff:
+                c += 1
+            else:
+                break
+        return c

@@ -14,6 +14,7 @@ function ensureCards() {
       <div class="card"><div>P99</div><div id="p99">-</div></div>
       <div class="card"><div>Count</div><div id="count">-</div></div>
       <div class="card"><div>RPS (30s)</div><div id="rps">-</div></div>
+      <div class="card"><div>RPS (5m)</div><div id="rps5">-</div></div>
     `;
         cards.dataset.init = '1';
     }
@@ -24,21 +25,24 @@ async function refresh() {
     try {
         const metrics = await fetchJSON('/metrics');
         const n = Number(metrics.count || 0);
-        // thresholds: show P95 only if N>=500, P99 only if N>=10000
+        const n5 = Number(metrics.count_5m || 0);
+        // thresholds: show P95 only if N>=500, P99 only if window N>=10000
         const p95Ready = n >= 500;
-        const p99Ready = n >= 10000;
+        const p99Ready = n5 >= 10000 || n >= 10000;
         const p50Label = document.getElementById('p50')?.previousElementSibling;
         const p95Label = document.getElementById('p95')?.previousElementSibling;
         const p99Label = document.getElementById('p99')?.previousElementSibling;
         if (p50Label) p50Label.textContent = `P50 (N=${n})`;
         if (p95Label) p95Label.textContent = `P95 (N=${n})${p95Ready ? '' : ' · low N'}`;
-        if (p99Label) p99Label.textContent = `P99 (N=${n})${p99Ready ? '' : ' · low N'}`;
+        if (p99Label) p99Label.textContent = `P99 (5m N=${n5})${p99Ready ? '' : ' · low N'}`;
         // values
         document.getElementById('p50').textContent = Number(metrics.p50_ms).toFixed(2) + ' ms';
         document.getElementById('p95').textContent = p95Ready ? (Number(metrics.p95_ms).toFixed(2) + ' ms') : '—';
         document.getElementById('p99').textContent = p99Ready ? (Number(metrics.p99_ms).toFixed(2) + ' ms') : '—';
         document.getElementById('count').textContent = String(metrics.count);
         document.getElementById('rps').textContent = metrics.rps.toFixed(2);
+        const rps5 = (typeof metrics.rps_5m === 'number') ? Number(metrics.rps_5m).toFixed(2) : '0.00';
+        document.getElementById('rps5').textContent = rps5;
         updateChart(metrics);
     } catch (e) {
         // eslint-disable-next-line no-console
@@ -241,7 +245,8 @@ async function refreshCoverage() {
                 const nonFraudPct = latestNeg != null && Number.isFinite(latestNeg) ? (latestNeg * 100).toFixed(1) : '-';
                 const actualPct = latest != null ? (latest * 100).toFixed(1) : '-';
                 const avgSet = summary.avg_set_size != null ? Number(summary.avg_set_size).toFixed(2) : '-';
-                statsEl.textContent = `Fraud @ target ${targetPct}%: ${fraudPct}% · Non-fraud: ${nonFraudPct}% · Overall: ${actualPct}% · Avg set size: ${avgSet}`;
+                const amb = summary.ambiguous_share != null ? (Number(summary.ambiguous_share) * 100).toFixed(1) + '%' : '-';
+                statsEl.textContent = `Fraud @ target ${targetPct}%: ${fraudPct}% · Non-fraud: ${nonFraudPct}% · Overall: ${actualPct}% · Avg set size: ${avgSet} · Ambiguous: ${amb}`;
             }
         }
     } catch (e) {
@@ -341,7 +346,7 @@ async function refreshOffline() {
             html += `<tr><td>${k}</td><td>${Number.isFinite(fa) ? Number(fa).toFixed(4) : fa}</td><td>${Number.isFinite(fb) ? Number(fb).toFixed(4) : fb}</td></tr>`;
         }
         html += '</tbody></table>';
-        container.innerHTML = html;
+        container.innerHTML = html + '<div class="figure-caption">Metrics on held-out test set (no calibration data).</div>';
         imgContainer.innerHTML = '';
         const maybe = [];
         const descriptions = {
@@ -502,13 +507,16 @@ async function refreshAblation() {
             return;
         }
         if (btn) btn.style.display = 'none';
-        // Render concise table: Param, Value, Coverage, Under-coverage gap (target - cov), n_eff
-        let html = '<table><thead><tr><th>Mode</th><th>Param</th><th>Value</th><th>Coverage</th><th>Violation (target gap)</th><th>n_eff</th></tr></thead><tbody>';
+        // Render concise table with target and fraud coverage when available
+        let html = '<table><thead><tr><th>Mode</th><th>Param</th><th>Value</th><th>Target</th><th>Coverage</th><th>Fraud cov</th><th>Ambig%</th><th>Violation (target gap)</th><th>n_eff</th></tr></thead><tbody>';
         for (const r of rows) {
             const cov = r.final_coverage != null ? Number(r.final_coverage).toFixed(4) : '-';
+            const covPos = r.final_coverage_pos != null ? Number(r.final_coverage_pos).toFixed(4) : '-';
+            const target = r.target != null ? Number(r.target).toFixed(2) : (r.alpha != null ? (1 - Number(r.alpha)).toFixed(2) : '-');
             const viol = r.final_violation_rate != null ? Number(r.final_violation_rate).toFixed(4) : '-';
             const neff = r.effective_n != null ? Number(r.effective_n).toFixed(1) : '-';
-            html += `<tr><td>${r.mode}</td><td>${r.param}</td><td>${r.value}</td><td>${cov}</td><td>${viol}</td><td>${neff}</td></tr>`;
+            const amb = r.ambiguous_share != null ? (Number(r.ambiguous_share) * 100).toFixed(1) + '%' : '-';
+            html += `<tr><td>${r.mode}</td><td>${r.param}</td><td>${r.value}</td><td>${target}</td><td>${cov}</td><td>${covPos}</td><td>${amb}</td><td>${viol}</td><td>${neff}</td></tr>`;
         }
         html += '</tbody></table>';
         container.innerHTML = html;

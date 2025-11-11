@@ -32,10 +32,13 @@ class MetricsOut(BaseModel):
     requests-per-second estimate for dashboarding.
     """
     count: int
+    count_30s: int | None = None
+    count_5m: int | None = None
     p50_ms: float
     p95_ms: float
     p99_ms: float
     rps: float
+    rps_5m: float | None = None
 
 
 class HealthOut(BaseModel):

@@ -32,14 +32,20 @@ class ServiceMetricsRouter:
         buf = self.state.get_latency_buffer()
         count = buf.count()
         p = buf.percentiles([50, 95, 99])
-        # Sliding-window RPS (last 30s) to avoid zero between bursts
-        rps = buf.rps(window_seconds=30.0)
+        # Sliding-window RPS views
+        rps_30s = buf.rps(window_seconds=30.0)
+        rps_5m = buf.rps(window_seconds=300.0)
+        count_30s = buf.count_in_window(30.0)
+        count_5m = buf.count_in_window(300.0)
         return MetricsOut(
             count=int(count),
+            count_30s=int(count_30s),
+            count_5m=int(count_5m),
             p50_ms=float(p.get(50, 0.0)),
             p95_ms=float(p.get(95, 0.0)),
             p99_ms=float(p.get(99, 0.0)),
-            rps=rps,
+            rps=rps_30s,
+            rps_5m=rps_5m,
         )
 
     def get_offline_metrics(self) -> Dict[str, Any]:
