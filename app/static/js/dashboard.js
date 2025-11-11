@@ -13,7 +13,7 @@ function ensureCards() {
       <div class="card"><div>P95</div><div id="p95">-</div></div>
       <div class="card"><div>P99</div><div id="p99">-</div></div>
       <div class="card"><div>Count</div><div id="count">-</div></div>
-      <div class="card"><div>RPS</div><div id="rps">-</div></div>
+      <div class="card"><div>RPS (30s)</div><div id="rps">-</div></div>
     `;
         cards.dataset.init = '1';
     }
@@ -23,9 +23,20 @@ async function refresh() {
     ensureCards();
     try {
         const metrics = await fetchJSON('/metrics');
-        document.getElementById('p50').textContent = metrics.p50_ms.toFixed(2) + ' ms';
-        document.getElementById('p95').textContent = metrics.p95_ms.toFixed(2) + ' ms';
-        document.getElementById('p99').textContent = metrics.p99_ms.toFixed(2) + ' ms';
+        const n = Number(metrics.count || 0);
+        // thresholds: show P95 only if N>=500, P99 only if N>=10000
+        const p95Ready = n >= 500;
+        const p99Ready = n >= 10000;
+        const p50Label = document.getElementById('p50')?.previousElementSibling;
+        const p95Label = document.getElementById('p95')?.previousElementSibling;
+        const p99Label = document.getElementById('p99')?.previousElementSibling;
+        if (p50Label) p50Label.textContent = `P50 (N=${n})`;
+        if (p95Label) p95Label.textContent = `P95 (N=${n})${p95Ready ? '' : ' · low N'}`;
+        if (p99Label) p99Label.textContent = `P99 (N=${n})${p99Ready ? '' : ' · low N'}`;
+        // values
+        document.getElementById('p50').textContent = Number(metrics.p50_ms).toFixed(2) + ' ms';
+        document.getElementById('p95').textContent = p95Ready ? (Number(metrics.p95_ms).toFixed(2) + ' ms') : '—';
+        document.getElementById('p99').textContent = p99Ready ? (Number(metrics.p99_ms).toFixed(2) + ' ms') : '—';
         document.getElementById('count').textContent = String(metrics.count);
         document.getElementById('rps').textContent = metrics.rps.toFixed(2);
         updateChart(metrics);
@@ -175,6 +186,7 @@ const coverageState = {
     idx: [],
     cov: [],
     covPos: [],
+    covNeg: [],
 };
 
 function initCoverageChart() {
@@ -198,6 +210,7 @@ async function refreshCoverage() {
         coverageState.idx = data.idx;
         coverageState.cov = data.coverage;
         coverageState.covPos = Array.isArray(data.coverage_pos) ? data.coverage_pos : [];
+        coverageState.covNeg = Array.isArray(data.coverage_neg) ? data.coverage_neg : [];
         drawCoverageChart();
         if (summary) {
             const el = document.getElementById('streamConfig');
@@ -222,11 +235,13 @@ async function refreshCoverage() {
             if (statsEl) {
                 const latest = Array.isArray(coverageState.cov) && coverageState.cov.length ? coverageState.cov[coverageState.cov.length - 1] : null;
                 const latestPos = Array.isArray(coverageState.covPos) && coverageState.covPos.length ? coverageState.covPos[coverageState.covPos.length - 1] : null;
+                const latestNeg = Array.isArray(coverageState.covNeg) && coverageState.covNeg.length ? coverageState.covNeg[coverageState.covNeg.length - 1] : null;
                 const targetPct = ((1 - (summary.alpha ?? 0.05)) * 100).toFixed(1);
-                const actualPct = latest != null ? (latest * 100).toFixed(1) : '-';
                 const fraudPct = latestPos != null && Number.isFinite(latestPos) ? (latestPos * 100).toFixed(1) : '-';
+                const nonFraudPct = latestNeg != null && Number.isFinite(latestNeg) ? (latestNeg * 100).toFixed(1) : '-';
+                const actualPct = latest != null ? (latest * 100).toFixed(1) : '-';
                 const avgSet = summary.avg_set_size != null ? Number(summary.avg_set_size).toFixed(2) : '-';
-                statsEl.textContent = `Coverage (target ${targetPct}%): ${actualPct}% · Fraud: ${fraudPct}% · Avg set size: ${avgSet}`;
+                statsEl.textContent = `Fraud @ target ${targetPct}%: ${fraudPct}% · Non-fraud: ${nonFraudPct}% · Overall: ${actualPct}% · Avg set size: ${avgSet}`;
             }
         }
     } catch (e) {
@@ -357,7 +372,10 @@ async function refreshOffline() {
                 h.textContent = `Figure ${num}: ${it.label}`;
                 const p = document.createElement('p');
                 p.className = 'figure-caption';
-                p.textContent = descriptions[it.key] || 'Figure.';
+                const note = it.key === 'reliability_post'
+                    ? 'Class prior ≪ 1% → calibrated scores mostly in [0, 0.3].'
+                    : (descriptions[it.key] || 'Figure.');
+                p.textContent = note;
                 card.appendChild(h);
                 card.appendChild(img);
                 card.appendChild(p);

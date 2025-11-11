@@ -89,7 +89,8 @@ class StreamSimulator:
         self.decay = decay
         self.label_delay = label_delay
         self.warmup = warmup
-        self.buf = WindowBuf(window) if mode == "window" else ExpBuf(decay)
+        self.buf_pos = WindowBuf(window) if mode == "window" else ExpBuf(decay)
+        self.buf_neg = WindowBuf(window) if mode == "window" else ExpBuf(decay)
 
     def simulate(self, probs: np.ndarray, y_true: np.ndarray) -> Dict[str, Any]:
         pending: Deque[Tuple[int, int]] = deque()
@@ -104,28 +105,28 @@ class StreamSimulator:
         viol_hist: List[float] = []
 
         for i, p1 in enumerate(probs):
-            # Predictive set using current tau
-            tau = self.buf.quantile(self.q)
-            include_one = include_zero = True if np.isnan(tau) else False
-            if not np.isnan(tau):
-                include_one = p1 >= (1.0 - tau)
-                include_zero = (1.0 - p1) >= (1.0 - tau)
-
             pending.append((i, int(y_true[i])))
             if len(pending) > self.label_delay:
                 j, yj = pending.popleft()
                 pj = float(probs[j])
-                s = pj if yj == 0 else (1.0 - pj)
-                # Evaluate coverage with the tau that was in effect BEFORE updating with this label
-                tau_eval = self.buf.quantile(self.q)
-                if np.isnan(tau_eval):
-                    in_set = True
-                    set_size = 2
+                # Evaluate coverage with label-conditional thresholds BEFORE updating with this label
+                tau_pos = self.buf_pos.quantile(self.q)
+                tau_neg = self.buf_neg.quantile(self.q)
+                if np.isnan(tau_pos) or np.isnan(tau_neg):
+                    # If either buffer is empty during early warmup, allow both labels (conservative)
+                    in_pos = True
+                    in_neg = True
                 else:
-                    in_set = (yj == 1 and pj >= (1.0 - tau_eval)) or (yj == 0 and (1.0 - pj) >= (1.0 - tau_eval))
-                    set_size = int(pj >= (1.0 - tau_eval)) + int((1.0 - pj) >= (1.0 - tau_eval))
-                # Now update buffer with its nonconformity score
-                self.buf.add(s)
+                    in_pos = pj >= (1.0 - tau_pos)  # include label 1 if 1 - p1 <= tau_pos
+                    in_neg = (1.0 - pj) >= (1.0 - tau_neg)  # include label 0 if p1 <= tau_neg
+                set_size = int(in_pos) + int(in_neg)
+                in_set = (yj == 1 and in_pos) or (yj == 0 and in_neg)
+                # Update only the buffer corresponding to the revealed true label
+                s = (1.0 - pj) if yj == 1 else pj
+                if yj == 1:
+                    self.buf_pos.add(s)
+                else:
+                    self.buf_neg.add(s)
                 total += 1
                 covered += int(in_set)
                 sum_set_size += float(set_size)
@@ -147,15 +148,21 @@ class StreamSimulator:
         while pending:
             j, yj = pending.popleft()
             pj = float(probs[j])
-            s = pj if yj == 0 else (1.0 - pj)
-            tau_eval = self.buf.quantile(self.q)
-            if np.isnan(tau_eval):
-                in_set = True
-                set_size = 2
+            tau_pos = self.buf_pos.quantile(self.q)
+            tau_neg = self.buf_neg.quantile(self.q)
+            if np.isnan(tau_pos) or np.isnan(tau_neg):
+                in_pos = True
+                in_neg = True
             else:
-                in_set = (yj == 1 and pj >= (1.0 - tau_eval)) or (yj == 0 and (1.0 - pj) >= (1.0 - tau_eval))
-                set_size = int(pj >= (1.0 - tau_eval)) + int((1.0 - pj) >= (1.0 - tau_eval))
-            self.buf.add(s)
+                in_pos = pj >= (1.0 - tau_pos)
+                in_neg = (1.0 - pj) >= (1.0 - tau_neg)
+            set_size = int(in_pos) + int(in_neg)
+            in_set = (yj == 1 and in_pos) or (yj == 0 and in_neg)
+            s = (1.0 - pj) if yj == 1 else pj
+            if yj == 1:
+                self.buf_pos.add(s)
+            else:
+                self.buf_neg.add(s)
             total += 1
             covered += int(in_set)
             sum_set_size += float(set_size)
@@ -191,7 +198,7 @@ class StreamSimulator:
             "final_coverage_neg": final_cov_neg,
             "final_violation_rate": final_violation_gap,
             "avg_set_size": avg_set_size,
-            "effective_n": self.buf.effective_n(),
+            "effective_n": (self.buf_pos.effective_n() + self.buf_neg.effective_n()),
             "warmup": self.warmup,
         }
 
@@ -209,6 +216,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ablate", action="store_true", help="Run ablation over window sizes or decays")
     parser.add_argument("--ablate_windows", type=str, default="500,2000,8000", help="Comma-separated window sizes")
     parser.add_argument("--ablate_decays", type=str, default="0.005,0.01,0.02", help="Comma-separated decay values")
+    parser.add_argument("--ablate_alphas", type=str, default="0.90,0.95,0.99", help="Comma-separated alpha values")
     return parser.parse_args()
 
 
@@ -279,6 +287,7 @@ def main() -> None:
     # Optional ablation
     if args.ablate:
         records: List[Dict[str, Any]] = []
+        # Sweep windows / decays
         if args.mode == "window":
             vals = [int(v) for v in str(args.ablate_windows).split(",") if v.strip()]
             for w in vals:
@@ -317,6 +326,25 @@ def main() -> None:
                     "label_delay": args.label_delay,
                     "alpha": args.alpha,
                 })
+        # Sweep alpha values (target coverage)
+        alpha_vals = [float(v) for v in str(args.ablate_alphas).split(",") if v.strip()]
+        for a in alpha_vals:
+            sim_a = StreamSimulator(alpha=a, mode=args.mode, window=args.window, decay=args.decay,
+                                    label_delay=args.label_delay, warmup=args.warmup)
+            log_a = sim_a.simulate(probs=probs, y_true=y_test.to_numpy())
+            records.append({
+                "mode": args.mode,
+                "param": "alpha",
+                "value": a,
+                "final_coverage": log_a.get("final_coverage"),
+                "final_violation_rate": log_a.get("final_violation_rate"),
+                "final_coverage_pos": log_a.get("final_coverage_pos"),
+                "avg_set_size": log_a.get("avg_set_size"),
+                "effective_n": log_a.get("effective_n"),
+                "warmup": args.warmup,
+                "label_delay": args.label_delay,
+                "alpha": a,
+            })
         if records:
             df = pd.DataFrame(records)
             df.to_csv(out / "stream_ablation.csv", index=False)

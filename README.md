@@ -20,13 +20,24 @@ evaluation under drift. Built for production-grade decisioning with conformal pr
 
 ## Data splits (offline)
 
-- Train/Valid: select base model on a held-out valid split (e.g., AP); then refit base on train+valid.
-- Calibrate: fit `CalibratedClassifierCV(..., cv="prefit")` on the calibration split only.
-- Test: report ROC-AUC, PR-AUC, Brier, and NLL on the test split only.
+- Strict three-way split:
+  - Train/Valid: select base model on a held-out valid split (e.g., AP); then refit base on train+valid.
+  - Calibrate: fit `CalibratedClassifierCV(..., cv="prefit")` on the calibration split only (no leakage).
+  - Test: compute ROC-AUC, PR-AUC, Brier, and NLL on the test split only.
+
+Example (values produced by CI; see `models/metrics_offline.json` and the dashboard):
+
+| Metric | Pre (test) | Post (test) |
+|-------:|-----------:|------------:|
+| ROC-AUC | ~0.98 | ~0.976 |
+| PR-AUC  | ~0.746 | ~0.732 |
+| Brier   | ~0.023 | ~0.0005 |
+| NLL     | ~0.100 | ~0.0039 |
 
 ## Metrics (report)
 
 - Offline: ROC-AUC, PR-AUC, Brier, NLL; reliability diagrams pre/post calibration
+- Note: with extreme class imbalance, calibrated scores typically live in [0, 0.3]; plots are annotated accordingly.
 - Serving: P50/P95/P99 tail latencies, requests/sec (dashboard)
 - Streaming: coverage (1-α) and violations vs time; window/decay ablation
 
