@@ -45,6 +45,8 @@ class Application:
         self.app = FastAPI(title=self.title, version=self.version)
         self.state = AppState(model_path=self.model_path, ring_buffer_size=self.ring_buffer_size)
         self._add_latency_middleware()
+        assert self.app is not None and self.state is not None
+        self.app.add_event_handler("shutdown", lambda: self.state.shutdown_background())
         return self
 
     def include_routers(self) -> "Application":
@@ -88,6 +90,8 @@ class Application:
                 # Record only /predict POST requests to avoid polluting with health/metrics
                 if request.method == "POST" and request.url.path == "/predict":
                     self.state.get_latency_buffer().append(dt_ms)  # type: ignore[union-attr]
+                    # Debounced live-metrics flush in background (no hot-path I/O)
+                    self.state.schedule_metrics_flush()  # type: ignore[union-attr]
             except Exception:
                 # Never let metrics recording break requests
                 pass
