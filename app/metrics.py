@@ -98,3 +98,38 @@ class LatencyRingBuffer:
             else:
                 break
         return c
+
+    def percentiles_in_window(self, qs: List[float], window_seconds: float) -> Dict[float, float]:
+        """Compute percentiles over entries within the last window_seconds."""
+        if window_seconds <= 0:
+            return {q: 0.0 for q in qs}
+        now = time.time()
+        cutoff = now - window_seconds
+        with self._lock:  # type: ignore[arg-type]
+            times = list(self._timebuffer)  # type: ignore[union-attr]
+            values = list(self._buffer)  # type: ignore[union-attr]
+        if not times or not values:
+            return {q: 0.0 for q in qs}
+        win_vals: List[float] = []
+        for idx in range(len(times) - 1, -1, -1):
+            if times[idx] >= cutoff:
+                win_vals.append(values[idx])
+            else:
+                break
+        if not win_vals:
+            return {q: 0.0 for q in qs}
+        arr = sorted(win_vals)
+        out: Dict[float, float] = {}
+        for q in qs:
+            if q <= 0:
+                out[q] = arr[0]
+                continue
+            if q >= 100:
+                out[q] = arr[-1]
+                continue
+            k = (q / 100.0) * (len(arr) - 1)
+            lo = int(k)
+            hi = min(lo + 1, len(arr) - 1)
+            frac = k - lo
+            out[q] = arr[lo] * (1 - frac) + arr[hi] * frac
+        return out

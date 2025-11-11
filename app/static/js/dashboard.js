@@ -24,16 +24,15 @@ async function refresh() {
     ensureCards();
     try {
         const metrics = await fetchJSON('/metrics');
-        const n = Number(metrics.count || 0);
+        const n = Number(metrics.count_5m || metrics.count || 0);
         const n5 = Number(metrics.count_5m || 0);
-        // thresholds: show P95 only if N>=500, P99 only if window N>=10000
-        const p95Ready = n >= 500;
-        const p99Ready = n5 >= 10000 || n >= 10000;
+        const p95Ready = n5 >= 500;
+        const p99Ready = n5 >= 10000;
         const p50Label = document.getElementById('p50')?.previousElementSibling;
         const p95Label = document.getElementById('p95')?.previousElementSibling;
         const p99Label = document.getElementById('p99')?.previousElementSibling;
-        if (p50Label) p50Label.textContent = `P50 (N=${n})`;
-        if (p95Label) p95Label.textContent = `P95 (N=${n})${p95Ready ? '' : ' · low N'}`;
+        if (p50Label) p50Label.textContent = `P50 (5m N=${n5})`;
+        if (p95Label) p95Label.textContent = `P95 (5m N=${n5})${p95Ready ? '' : ' · low N'}`;
         if (p99Label) p99Label.textContent = `P99 (5m N=${n5})${p99Ready ? '' : ' · low N'}`;
         // values
         document.getElementById('p50').textContent = Number(metrics.p50_ms).toFixed(2) + ' ms';

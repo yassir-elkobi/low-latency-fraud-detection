@@ -31,12 +31,14 @@ class ServiceMetricsRouter:
         """Return latency percentiles and request counters for observability."""
         buf = self.state.get_latency_buffer()
         count = buf.count()
-        p = buf.percentiles([50, 95, 99])
+        # Use 5-minute window for percentiles to align tails
+        WINDOW = 300.0
+        p = buf.percentiles_in_window([50, 95, 99], WINDOW)
         # Sliding-window RPS views
         rps_30s = buf.rps(window_seconds=30.0)
-        rps_5m = buf.rps(window_seconds=300.0)
+        rps_5m = buf.rps(window_seconds=WINDOW)
         count_30s = buf.count_in_window(30.0)
-        count_5m = buf.count_in_window(300.0)
+        count_5m = buf.count_in_window(WINDOW)
         return MetricsOut(
             count=int(count),
             count_30s=int(count_30s),
