@@ -26,6 +26,7 @@ class ServiceMetricsRouter:
         self.router.add_api_route("/metrics/offline", self.get_offline_metrics, methods=["GET"])
         self.router.add_api_route("/metrics/stream", self.get_stream_metrics, methods=["GET"])
         self.router.add_api_route("/metrics/stream/ablate", self.run_ablation, methods=["POST"])
+        self.router.add_api_route("/metrics/ops", self.get_ops, methods=["GET"])
 
     def get_metrics(self) -> MetricsOut:
         """Return latency percentiles and request counters for observability."""
@@ -49,6 +50,10 @@ class ServiceMetricsRouter:
             rps=rps_30s,
             rps_5m=rps_5m,
         )
+
+    def get_ops(self) -> Dict[str, float]:
+        """Return background worker operational counters."""
+        return self.state.get_ops()
 
     def get_offline_metrics(self) -> Dict[str, Any]:
         """Serve offline metrics JSON produced by training/evaluation."""

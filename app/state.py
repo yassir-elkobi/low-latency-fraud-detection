@@ -24,6 +24,8 @@ class AppState:
     _bg_thread: Optional[Thread] = None
     _bg_queue: Optional[Queue] = None
     _debounce_registry: Dict[str, Tuple[float, float, Callable[[], None]]] = {}
+    _last_flush_ts: float = 0.0
+    _bg_errors: int = 0
 
     def __init__(self, model_path: Optional[str] = None, ring_buffer_size: int = 20000) -> None:
         """Initialize state; optionally preload model and latency buffer."""
@@ -37,7 +39,7 @@ class AppState:
         }
         self._start_time = time.time()
         # Lightweight background worker for off-path tasks (file writes, etc.)
-        self._bg_queue = Queue()
+        self._bg_queue = Queue(maxsize=1)
         self._bg_thread = Thread(target=self._bg_loop, name="bg-worker", daemon=True)
         self._bg_thread.start()
         if model_path:
@@ -86,7 +88,7 @@ class AppState:
                     func()
                 except Exception:
                     # Background tasks must never crash the process
-                    pass
+                    self._bg_errors += 1
             except Empty:
                 pass
             # Check debounced tasks
@@ -103,6 +105,9 @@ class AppState:
     def submit_background(self, fn: Callable[[], None]) -> None:
         """Submit a callable to be executed in the background."""
         if self._bg_queue is not None:
+            # Backpressure: keep at most one pending task
+            if self._bg_queue.qsize() >= 1:
+                return
             self._bg_queue.put(fn)
 
     def debounce_background(self, name: str, min_interval_seconds: float, fn: Callable[[], None]) -> None:
@@ -154,10 +159,26 @@ class AppState:
             dst = out_dir / "live_metrics.json"
             tmp.write_text(json.dumps(payload))
             os.replace(tmp, dst)
+            self._last_flush_ts = payload["timestamp"]
         except Exception:
             # Ignore I/O errors; background flushes are best-effort
-            pass
+            self._bg_errors += 1
 
     def schedule_metrics_flush(self, min_interval_seconds: float = 15.0) -> None:
         """Debounce live metrics flush to avoid I/O on the hot path."""
         self.debounce_background("flush_live_metrics", min_interval_seconds, self.flush_live_metrics)
+
+    # --------------------- ops observability ---------------------
+    def get_ops(self) -> Dict[str, float]:
+        """Return background worker operational counters."""
+        qdepth = 0.0
+        if self._bg_queue is not None:
+            try:
+                qdepth = float(self._bg_queue.qsize())
+            except Exception:
+                qdepth = 0.0
+        return {
+            "queue_depth": qdepth,
+            "last_flush_ts": float(self._last_flush_ts),
+            "bg_errors": float(self._bg_errors),
+        }

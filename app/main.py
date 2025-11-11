@@ -8,6 +8,7 @@ from .state import AppState
 from .routers.health import HealthRouter
 from .routers.predict import PredictRouter
 from .routers.service_metrics import ServiceMetricsRouter
+from .routers.admin import AdminRouter
 
 DEFAULT_TITLE = "LowLatencyFraudDetection"
 DEFAULT_VERSION = "0.1.0"
@@ -55,9 +56,11 @@ class Application:
         health = HealthRouter(self.state)
         predict = PredictRouter(self.state)
         metrics = ServiceMetricsRouter(self.state)
+        admin = AdminRouter(self.state)
         self.app.include_router(health.router)
         self.app.include_router(predict.router)
         self.app.include_router(metrics.router)
+        self.app.include_router(admin.router)
         return self
 
     def mount_static(self, static_path: Optional[str] = None) -> "Application":
