@@ -17,7 +17,10 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 from sklearn.pipeline import Pipeline
-from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.svm import SVC
+from sklearn.neural_network import MLPClassifier
+from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.calibration import calibration_curve
 from scripts.common import load_dataset as common_load_dataset, temporal_split as common_temporal_split, \
     build_preprocessor as common_build_preprocessor, compute_metrics as common_compute_metrics
@@ -74,6 +77,58 @@ class BaselineTrainer:
                                                   ]),
                               "label": f"GBDT(n={n_estimators},lr={learning_rate})",
                               },
+                     ))
+
+        # Random Forest (compact grid)
+        for n_estimators in [200, 400]:
+            for max_depth in [None, 8]:
+                models.append(
+                    ("rf", {"pipeline":
+                                Pipeline(steps=[("pre", pre), ("clf",
+                                                               RandomForestClassifier(
+                                                                   n_estimators=n_estimators,
+                                                                   max_depth=max_depth,
+                                                                   n_jobs=1,
+                                                                   class_weight="balanced_subsample",
+                                                                   random_state=self.random_state)
+                                                               ),
+                                                ]),
+                            "label": f"RF(n={n_estimators},depth={max_depth})",
+                            }
+                     ))
+
+        # SVM (RBF) with probability estimates
+        for C in [0.5, 1.0]:
+            for gamma in ["scale"]:
+                models.append(
+                    ("svm", {"pipeline":
+                                 Pipeline(steps=[("pre", pre), ("clf",
+                                                                SVC(C=C, gamma=gamma, kernel="rbf",
+                                                                    probability=True,
+                                                                    class_weight="balanced",
+                                                                    random_state=self.random_state)
+                                                                ),
+                                                 ]),
+                             "label": f"SVM(RBF,C={C},gamma={gamma})",
+                             }
+                     ))
+
+        # MLP (small network)
+        for hidden in [(64,), (64, 32)]:
+            for alpha in [1e-4, 1e-3]:
+                models.append(
+                    ("mlp", {"pipeline":
+                                 Pipeline(steps=[("pre", pre), ("clf",
+                                                                MLPClassifier(hidden_layer_sizes=hidden,
+                                                                              alpha=alpha,
+                                                                              max_iter=200,
+                                                                              learning_rate_init=1e-3,
+                                                                              early_stopping=True,
+                                                                              random_state=self.random_state)
+                                                                ),
+                                                 ]),
+                             "label": f"MLP(h={hidden},alpha={alpha})",
+                             }
                      ))
 
         return models
@@ -179,12 +234,46 @@ class BaselineTrainer:
         pre = common_build_preprocessor(numeric_cols)
         candidates = self.candidate_models(pre)
 
+        # Cross-validated baselines on train+valid (report only; not used for fit)
+        X_trv = pd.concat([X_train, X_valid], axis=0)
+        y_trv = pd.concat([y_train, y_valid], axis=0)
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=self.random_state)
+        baselines_cv: List[Dict[str, Any]] = []
+        for name, cfg in candidates:
+            pipe: Pipeline = cfg["pipeline"]
+            label: str = cfg["label"]
+            # ROC-AUC
+            roc_scores = cross_val_score(pipe, X_trv, y_trv, cv=cv, scoring="roc_auc", n_jobs=1)
+            # PR-AUC
+            pr_scores = cross_val_score(pipe, X_trv, y_trv, cv=cv, scoring="average_precision", n_jobs=1)
+            # Extract key hyperparameters for readability
+            params: Dict[str, Any] = {}
+            clf = pipe.named_steps.get("clf")
+            if isinstance(clf, LogisticRegression):
+                params = {"C": clf.C, "penalty": clf.penalty}
+            elif isinstance(clf, GradientBoostingClassifier):
+                params = {"n_estimators": clf.n_estimators, "learning_rate": clf.learning_rate,
+                          "max_depth": clf.max_depth}
+            elif isinstance(clf, RandomForestClassifier):
+                params = {"n_estimators": clf.n_estimators, "max_depth": clf.max_depth}
+            elif isinstance(clf, SVC):
+                params = {"kernel": clf.kernel, "C": clf.C, "gamma": clf.gamma}
+            elif isinstance(clf, MLPClassifier):
+                params = {"hidden": clf.hidden_layer_sizes, "alpha": clf.alpha}
+            baselines_cv.append({
+                "family": name,
+                "label": label,
+                "params": params,
+                "roc_auc_mean": float(np.mean(roc_scores)),
+                "roc_auc_std": float(np.std(roc_scores)),
+                "pr_auc_mean": float(np.mean(pr_scores)),
+                "pr_auc_std": float(np.std(pr_scores)),
+            })
+
         # Select base on valid
         best_label, base_model, base_meta = self.select_base_model(candidates, X_train, y_train, X_valid, y_valid)
 
         # Refit base on train+valid
-        X_trv = pd.concat([X_train, X_valid], axis=0)
-        y_trv = pd.concat([y_train, y_valid], axis=0)
         base_model.fit(X_trv, y_trv)
 
         # Raw scores on test (pre-calibration)
@@ -214,6 +303,9 @@ class BaselineTrainer:
             "calibration": calib_meta,
             "metrics_pre": metrics_raw,
             "metrics_post": metrics_cal,
+            "baselines_cv": [
+                {**row, "selected": bool(row.get("label") == best_label)} for row in baselines_cv
+            ],
             "artifacts": {
                 "reliability_pre": str((artifacts_path / "reliability_pre.png").as_posix()),
                 "reliability_post": str((artifacts_path / "reliability_post.png").as_posix()),

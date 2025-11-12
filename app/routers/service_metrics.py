@@ -7,6 +7,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException
 from ..state import AppState
 from ..schemas import MetricsOut
+import time
 
 """
 Service metrics endpoint router skeleton.
@@ -34,6 +35,7 @@ class ServiceMetricsRouter:
         count = buf.count()
         # Use 5-minute window for percentiles to align tails
         WINDOW = 300.0
+        ts = time.time()
         p = buf.percentiles_in_window([50, 95, 99], WINDOW)
         # Sliding-window RPS views
         rps_30s = buf.rps(window_seconds=30.0)
@@ -44,6 +46,8 @@ class ServiceMetricsRouter:
             count=int(count),
             count_30s=int(count_30s),
             count_5m=int(count_5m),
+            ts=float(ts),
+            window_seconds=float(WINDOW),
             p50_ms=float(p.get(50, 0.0)),
             p95_ms=float(p.get(95, 0.0)),
             p99_ms=float(p.get(99, 0.0)),
@@ -89,7 +93,32 @@ class ServiceMetricsRouter:
 
         Runs `python -m scripts.simulate_stream --ablate` and returns immediately.
         """
-        cmd = [sys.executable, "-m", "scripts.simulate_stream", "--ablate"]
+        # Try to align ablation config with the last simulation summary if available
+        cfg_args: List[str] = []
+        try:
+            summary_path = Path("artifacts/stream_summary.json")
+            if summary_path.exists():
+                summary = json.loads(summary_path.read_text())
+                mode = summary.get("mode")
+                window = summary.get("window")
+                decay = summary.get("decay")
+                label_delay = summary.get("label_delay")
+                warmup = summary.get("warmup")
+                if mode in ("window", "exp"):
+                    cfg_args += ["--mode", str(mode)]
+                if isinstance(window, (int, float)) and mode == "window":
+                    cfg_args += ["--window", str(int(window))]
+                if isinstance(decay, (int, float)) and mode == "exp":
+                    cfg_args += ["--decay", str(float(decay))]
+                if isinstance(label_delay, (int, float)):
+                    cfg_args += ["--label_delay", str(int(label_delay))]
+                if isinstance(warmup, (int, float)):
+                    cfg_args += ["--warmup", str(int(warmup))]
+        except Exception:
+            # Best-effort; fall back to defaults if reading summary fails
+            cfg_args = []
+
+        cmd = [sys.executable, "-m", "scripts.simulate_stream", "--ablate", *cfg_args]
         try:
             subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as exc:

@@ -28,12 +28,14 @@ async function refresh() {
         const n5 = Number(metrics.count_5m || 0);
         const p95Ready = n5 >= 500;
         const p99Ready = n5 >= 10000;
+        const ts = (typeof metrics.ts === 'number') ? new Date(metrics.ts * 1000) : new Date();
+        const tsStr = ts.toLocaleTimeString();
         const p50Label = document.getElementById('p50')?.previousElementSibling;
         const p95Label = document.getElementById('p95')?.previousElementSibling;
         const p99Label = document.getElementById('p99')?.previousElementSibling;
-        if (p50Label) p50Label.textContent = `P50 (5m N=${n5})`;
-        if (p95Label) p95Label.textContent = `P95 (5m N=${n5})${p95Ready ? '' : ' · low N'}`;
-        if (p99Label) p99Label.textContent = `P99 (5m N=${n5})${p99Ready ? '' : ' · low N'}`;
+        if (p50Label) p50Label.textContent = `P50 (5m N=${n5} · ${tsStr})`;
+        if (p95Label) p95Label.textContent = `P95 (5m N=${n5} · ${tsStr})${p95Ready ? '' : ' · low N'}`;
+        if (p99Label) p99Label.textContent = `P99 (5m N=${n5} · ${tsStr})${p99Ready ? '' : ' · low N'}`;
         // values
         document.getElementById('p50').textContent = Number(metrics.p50_ms).toFixed(2) + ' ms';
         document.getElementById('p95').textContent = p95Ready ? (Number(metrics.p95_ms).toFixed(2) + ' ms') : '—';
@@ -322,6 +324,7 @@ function drawCoverageChart() {
 async function refreshOffline() {
     const container = document.getElementById('offlineMetrics');
     const imgContainer = document.getElementById('offlineImages');
+    const cvContainer = document.getElementById('baselinesCV');
     if (!container || !imgContainer) return;
     try {
         // Reset figure numbering for offline images on each refresh so numbers stay stable
@@ -347,6 +350,30 @@ async function refreshOffline() {
         html += '</tbody></table>';
         container.innerHTML = html + '<div class="figure-caption">Metrics on held-out test set (no calibration data).</div>';
         imgContainer.innerHTML = '';
+        // Baselines CV table (if present)
+        if (cvContainer) {
+            const rows = Array.isArray(data.baselines_cv) ? data.baselines_cv.slice() : [];
+            if (!rows.length) {
+                cvContainer.innerHTML = '<div class="muted">No CV baselines available yet.</div>';
+            } else {
+                // Sort by PR-AUC mean descending
+                rows.sort((a, b) => (b.pr_auc_mean ?? 0) - (a.pr_auc_mean ?? 0));
+                const fmt = (x, d=4) => (Number.isFinite(x) ? Number(x).toFixed(d) : '-');
+                const fmtParams = (p) => {
+                    if (!p || typeof p !== 'object') return '';
+                    return Object.entries(p).map(([k,v]) => `${k}=${Array.isArray(v) ? JSON.stringify(v) : v}`).join(' ');
+                };
+                let t = '<table><thead><tr><th>Model</th><th>Params</th><th>ROC-AUC (CV)</th><th>PR-AUC (CV)</th><th>Chosen</th></tr></thead><tbody>';
+                for (const r of rows) {
+                    const roc = `${fmt(r.roc_auc_mean)}±${fmt(r.roc_auc_std, 3)}`;
+                    const pr = `${fmt(r.pr_auc_mean)}±${fmt(r.pr_auc_std, 3)}`;
+                    const chosen = r.selected ? '✓' : '';
+                    t += `<tr><td>${r.label || r.family}</td><td>${fmtParams(r.params)}</td><td>${roc}</td><td>${pr}</td><td style="text-align:center">${chosen}</td></tr>`;
+                }
+                t += '</tbody></table>';
+                cvContainer.innerHTML = t;
+            }
+        }
         const maybe = [];
         const descriptions = {
             reliability_pre: 'Reliability diagram before calibration.',

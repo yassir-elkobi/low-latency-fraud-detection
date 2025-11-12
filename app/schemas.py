@@ -34,6 +34,8 @@ class MetricsOut(BaseModel):
     count: int
     count_30s: int | None = None
     count_5m: int | None = None
+    ts: float | None = None
+    window_seconds: float | None = None
     p50_ms: float
     p95_ms: float
     p99_ms: float

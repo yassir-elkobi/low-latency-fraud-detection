@@ -24,6 +24,7 @@ evaluation under drift. Built for production-grade decisioning with conformal pr
   - Train/Valid: select base model on a held-out valid split (e.g., AP); then refit base on train+valid.
   - Calibrate: fit `CalibratedClassifierCV(..., cv="prefit")` on the calibration split only (no leakage).
   - Test: compute ROC-AUC, PR-AUC, Brier, and NLL on the test split only.
+  - Baselines (CV): the dashboard’s CV table is 5-fold Stratified CV run on train+valid only; the test split remains untouched for final reporting.
 
 Example (values produced by CI; see `models/metrics_offline.json` and the dashboard):
 
