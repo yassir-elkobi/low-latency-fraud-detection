@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional, Set
+import argparse
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -43,93 +44,102 @@ class BaselineTrainer:
 
     # ------------------------ Modeling ------------------------
 
-    def candidate_models(self, pre: ColumnTransformer) -> List[Tuple[str, Dict[str, Any]]]:
-        """Return a small set of model configs to try on the valid split."""
+    def candidate_models(self, pre: ColumnTransformer, families_filter: Optional[Set[str]] = None) -> List[
+        Tuple[str, Dict[str, Any]]]:
+        """Return a small set of model configs to try on the valid split.
+
+        families_filter: optional set of families to include: {'logreg','gbdt','rf','svm','mlp'}.
+        """
         models: List[Tuple[str, Dict[str, Any]]] = []
 
         # Logistic Regression variants
-        for C in [0.1, 1.0, 10.0]:
-            models.append(
-                ("logreg", {"pipeline":
-                                Pipeline(steps=[("pre", pre), ("clf",
-                                                               LogisticRegression(C=C, penalty="l2",
-                                                                                  solver="lbfgs", max_iter=2000,
-                                                                                  class_weight="balanced",
-                                                                                  random_state=self.random_state)
-                                                               ),
-                                                ]),
-                            "label": f"LR(C={C})",
-                            }
-                 ))
+        if families_filter is None or "logreg" in families_filter:
+            for C in [0.1, 1.0, 10.0]:
+                models.append(
+                    ("logreg", {"pipeline":
+                                    Pipeline(steps=[("pre", pre), ("clf",
+                                                                   LogisticRegression(C=C, penalty="l2",
+                                                                                      solver="lbfgs", max_iter=2000,
+                                                                                      class_weight="balanced",
+                                                                                      random_state=self.random_state)
+                                                                   ),
+                                                    ]),
+                                "label": f"LR(C={C})",
+                                }
+                     ))
 
         # Gradient Boosting (light grid)
-        for n_estimators in [100, 200]:
-            for learning_rate in [0.05, 0.1]:
-                models.append(
-                    ("gbdt", {"pipeline":
-                                  Pipeline(steps=[("pre", pre), ("clf",
-                                                                 GradientBoostingClassifier(
-                                                                     n_estimators=n_estimators,
-                                                                     learning_rate=learning_rate,
-                                                                     max_depth=3,
-                                                                     random_state=self.random_state)
-                                                                 ),
-                                                  ]),
-                              "label": f"GBDT(n={n_estimators},lr={learning_rate})",
-                              },
-                     ))
+        if families_filter is None or "gbdt" in families_filter:
+            for n_estimators in [100, 200]:
+                for learning_rate in [0.05, 0.1]:
+                    models.append(
+                        ("gbdt", {"pipeline":
+                                      Pipeline(steps=[("pre", pre), ("clf",
+                                                                     GradientBoostingClassifier(
+                                                                         n_estimators=n_estimators,
+                                                                         learning_rate=learning_rate,
+                                                                         max_depth=3,
+                                                                         random_state=self.random_state)
+                                                                     ),
+                                                      ]),
+                                  "label": f"GBDT(n={n_estimators},lr={learning_rate})",
+                                  },
+                         ))
 
         # Random Forest (compact grid)
-        for n_estimators in [200, 400]:
-            for max_depth in [None, 8]:
-                models.append(
-                    ("rf", {"pipeline":
-                                Pipeline(steps=[("pre", pre), ("clf",
-                                                               RandomForestClassifier(
-                                                                   n_estimators=n_estimators,
-                                                                   max_depth=max_depth,
-                                                                   n_jobs=1,
-                                                                   class_weight="balanced_subsample",
-                                                                   random_state=self.random_state)
-                                                               ),
-                                                ]),
-                            "label": f"RF(n={n_estimators},depth={max_depth})",
-                            }
-                     ))
+        if families_filter is None or "rf" in families_filter:
+            for n_estimators in [200, 400]:
+                for max_depth in [None, 8]:
+                    models.append(
+                        ("rf", {"pipeline":
+                                    Pipeline(steps=[("pre", pre), ("clf",
+                                                                   RandomForestClassifier(
+                                                                       n_estimators=n_estimators,
+                                                                       max_depth=max_depth,
+                                                                       n_jobs=1,
+                                                                       class_weight="balanced_subsample",
+                                                                       random_state=self.random_state)
+                                                                   ),
+                                                    ]),
+                                "label": f"RF(n={n_estimators},depth={max_depth})",
+                                }
+                         ))
 
         # SVM (RBF) with probability estimates
-        for C in [0.5, 1.0]:
-            for gamma in ["scale"]:
-                models.append(
-                    ("svm", {"pipeline":
-                                 Pipeline(steps=[("pre", pre), ("clf",
-                                                                SVC(C=C, gamma=gamma, kernel="rbf",
-                                                                    probability=True,
-                                                                    class_weight="balanced",
-                                                                    random_state=self.random_state)
-                                                                ),
-                                                 ]),
-                             "label": f"SVM(RBF,C={C},gamma={gamma})",
-                             }
-                     ))
+        if families_filter is None or "svm" in families_filter:
+            for C in [0.5, 1.0]:
+                for gamma in ["scale"]:
+                    models.append(
+                        ("svm", {"pipeline":
+                                     Pipeline(steps=[("pre", pre), ("clf",
+                                                                    SVC(C=C, gamma=gamma, kernel="rbf",
+                                                                        probability=True,
+                                                                        class_weight="balanced",
+                                                                        random_state=self.random_state)
+                                                                    ),
+                                                     ]),
+                                 "label": f"SVM(RBF,C={C},gamma={gamma})",
+                                 }
+                         ))
 
         # MLP (small network)
-        for hidden in [(64,), (64, 32)]:
-            for alpha in [1e-4, 1e-3]:
-                models.append(
-                    ("mlp", {"pipeline":
-                                 Pipeline(steps=[("pre", pre), ("clf",
-                                                                MLPClassifier(hidden_layer_sizes=hidden,
-                                                                              alpha=alpha,
-                                                                              max_iter=200,
-                                                                              learning_rate_init=1e-3,
-                                                                              early_stopping=True,
-                                                                              random_state=self.random_state)
-                                                                ),
-                                                 ]),
-                             "label": f"MLP(h={hidden},alpha={alpha})",
-                             }
-                     ))
+        if families_filter is None or "mlp" in families_filter:
+            for hidden in [(64,), (64, 32)]:
+                for alpha in [1e-4, 1e-3]:
+                    models.append(
+                        ("mlp", {"pipeline":
+                                     Pipeline(steps=[("pre", pre), ("clf",
+                                                                    MLPClassifier(hidden_layer_sizes=hidden,
+                                                                                  alpha=alpha,
+                                                                                  max_iter=200,
+                                                                                  learning_rate_init=1e-3,
+                                                                                  early_stopping=True,
+                                                                                  random_state=self.random_state)
+                                                                    ),
+                                                     ]),
+                                 "label": f"MLP(h={hidden},alpha={alpha})",
+                                 }
+                         ))
 
         return models
 
@@ -221,9 +231,14 @@ class BaselineTrainer:
             artifacts_dir: str = "artifacts",
             split_ratios: Tuple[float, float, float, float] = (0.6, 0.1, 0.1, 0.2),
             sample_frac: float | None = None,
+            cv_folds: int = 5,
+            cv_families: Optional[str] = None,
     ) -> None:
         # Load
         df = common_load_dataset(path=data_path)
+        if sample_frac is not None and 0 < sample_frac < 1.0:
+            n = int(len(df) * sample_frac)
+            df = df.iloc[: max(1, n)].reset_index(drop=True)
 
         # Split
         X_train, y_train, X_valid, y_valid, X_cal, y_cal, X_test, y_test = common_temporal_split(df,
@@ -232,12 +247,15 @@ class BaselineTrainer:
         # Preprocessor and candidates
         numeric_cols = list(X_train.columns)
         pre = common_build_preprocessor(numeric_cols)
-        candidates = self.candidate_models(pre)
+        fams: Optional[Set[str]] = None
+        if cv_families:
+            fams = {f.strip() for f in cv_families.split(",") if f.strip()}
+        candidates = self.candidate_models(pre, families_filter=fams)
 
         # Cross-validated baselines on train+valid (report only; not used for fit)
         X_trv = pd.concat([X_train, X_valid], axis=0)
         y_trv = pd.concat([y_train, y_valid], axis=0)
-        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=self.random_state)
+        cv = StratifiedKFold(n_splits=max(2, int(cv_folds)), shuffle=True, random_state=self.random_state)
         baselines_cv: List[Dict[str, Any]] = []
         for name, cfg in candidates:
             pipe: Pipeline = cfg["pipeline"]
@@ -322,5 +340,18 @@ class BaselineTrainer:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train baseline models, calibrate, and evaluate offline.")
+    parser.add_argument("--data-path", type=str, default=None, help="Path to CSV dataset")
+    parser.add_argument("--sample-frac", type=float, default=None,
+                        help="Optional fraction of earliest rows to use (0-1)")
+    parser.add_argument("--cv-folds", type=int, default=5, help="CV folds for baselines table")
+    parser.add_argument("--cv-families", type=str, default=None,
+                        help="Comma-separated families: logreg,gbdt,rf,svm,mlp")
+    args = parser.parse_args()
     trainer = BaselineTrainer()
-    trainer.main()
+    trainer.main(
+        data_path=args.data_path,
+        sample_frac=args.sample_frac,
+        cv_folds=args.cv_folds,
+        cv_families=args.cv_families,
+    )

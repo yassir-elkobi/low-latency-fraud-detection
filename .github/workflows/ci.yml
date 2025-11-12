@@ -13,7 +13,7 @@ on:
 jobs:
   train-and-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       PYTHONUNBUFFERED: "1"
       MPLBACKEND: "Agg"
@@ -35,9 +35,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Train baseline and calibrate
+      - name: Train baseline and calibrate (fast CI)
         run: |
-          python -m scripts.train_baseline
+          python -m scripts.train_baseline --cv-folds 3 --cv-families "logreg,gbdt,rf" --sample-frac 0.3
 
       - name: Evaluate offline
         run: |
@@ -45,10 +45,10 @@ jobs:
 
       - name: Streaming simulation (bounded)
         run: |
-          python -m scripts.simulate_stream --alpha 0.05 --mode window --window 2000 --label_delay 200 --max_events 20000
+          python -m scripts.simulate_stream --alpha 0.05 --mode window --window 2000 --label_delay 200 --max_events 15000
       - name: Streaming ablation sweep
         run: |
-          python -m scripts.simulate_stream --ablate --ablate_windows "500,2000,8000" --ablate_decays "0.005,0.01,0.02"
+          python -m scripts.simulate_stream --ablate --ablate_windows "500,2000,8000" --ablate_decays "0.005,0.01,0.02" --max_events 15000
 
       - name: Summarize results
         run: |
