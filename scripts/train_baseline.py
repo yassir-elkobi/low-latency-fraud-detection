@@ -21,7 +21,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
-from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.model_selection import StratifiedKFold, GroupKFold, TimeSeriesSplit, cross_val_score
 from sklearn.calibration import calibration_curve
 from scripts.common import load_dataset as common_load_dataset, temporal_split as common_temporal_split, \
     build_preprocessor as common_build_preprocessor, compute_metrics as common_compute_metrics
@@ -233,6 +233,8 @@ class BaselineTrainer:
             sample_frac: float | None = None,
             cv_folds: int = 5,
             cv_families: Optional[str] = None,
+            cv_mode: str = "stratified",
+            cv_group_col: Optional[str] = None,
     ) -> None:
         # Load
         df = common_load_dataset(path=data_path)
@@ -255,15 +257,32 @@ class BaselineTrainer:
         # Cross-validated baselines on train+valid (report only; not used for fit)
         X_trv = pd.concat([X_train, X_valid], axis=0)
         y_trv = pd.concat([y_train, y_valid], axis=0)
-        cv = StratifiedKFold(n_splits=max(2, int(cv_folds)), shuffle=True, random_state=self.random_state)
+        # Build CV splitter (avoid leakage)
+        cv_folds = max(2, int(cv_folds))
+        groups = None
+        if cv_mode == "group":
+            if not cv_group_col or cv_group_col not in df.columns:
+                raise ValueError(f"cv_mode='group' requires --cv-group-col present in dataset (got {cv_group_col})")
+            # Recreate train+valid slices to align groups
+            n_total = len(df)
+            n_train = int(n_total * split_ratios[0])
+            n_valid = int(n_total * split_ratios[1])
+            df_train = df.iloc[:n_train]
+            df_valid = df.iloc[n_train:n_train + n_valid]
+            groups = pd.concat([df_train[cv_group_col], df_valid[cv_group_col]], axis=0).to_numpy()
+            cv = GroupKFold(n_splits=cv_folds)
+        elif cv_mode == "temporal":
+            cv = TimeSeriesSplit(n_splits=cv_folds)
+        else:
+            cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=self.random_state)
         baselines_cv: List[Dict[str, Any]] = []
         for name, cfg in candidates:
             pipe: Pipeline = cfg["pipeline"]
             label: str = cfg["label"]
             # ROC-AUC
-            roc_scores = cross_val_score(pipe, X_trv, y_trv, cv=cv, scoring="roc_auc", n_jobs=1)
+            roc_scores = cross_val_score(pipe, X_trv, y_trv, cv=cv, scoring="roc_auc", n_jobs=1, groups=groups)
             # PR-AUC
-            pr_scores = cross_val_score(pipe, X_trv, y_trv, cv=cv, scoring="average_precision", n_jobs=1)
+            pr_scores = cross_val_score(pipe, X_trv, y_trv, cv=cv, scoring="average_precision", n_jobs=1, groups=groups)
             # Extract key hyperparameters for readability
             params: Dict[str, Any] = {}
             clf = pipe.named_steps.get("clf")
@@ -347,6 +366,11 @@ if __name__ == "__main__":
     parser.add_argument("--cv-folds", type=int, default=5, help="CV folds for baselines table")
     parser.add_argument("--cv-families", type=str, default=None,
                         help="Comma-separated families: logreg,gbdt,rf,svm,mlp")
+    parser.add_argument("--cv-mode", type=str, default="stratified",
+                        choices=["stratified", "temporal", "group"],
+                        help="Cross-validation mode for baselines")
+    parser.add_argument("--cv-group-col", type=str, default=None,
+                        help="Group column name when cv-mode=group")
     args = parser.parse_args()
     trainer = BaselineTrainer()
     trainer.main(
@@ -354,4 +378,6 @@ if __name__ == "__main__":
         sample_frac=args.sample_frac,
         cv_folds=args.cv_folds,
         cv_families=args.cv_families,
+        cv_mode=args.cv_mode,
+        cv_group_col=args.cv_group_col,
     )

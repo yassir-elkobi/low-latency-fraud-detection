@@ -37,7 +37,7 @@ jobs:
 
       - name: Train baseline and calibrate (fast CI)
         run: |
-          python -m scripts.train_baseline --cv-folds 3 --cv-families "logreg,gbdt,rf" --sample-frac 0.3
+          python -m scripts.train_baseline --cv-folds 3 --cv-families "logreg,gbdt,rf" --cv-mode temporal --sample-frac 0.3
 
       - name: Evaluate offline
         run: |

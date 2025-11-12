@@ -23,6 +23,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.ensemble import GradientBoostingClassifier
 from scripts.common import load_dataset as common_load_dataset, temporal_split as common_temporal_split, \
     build_preprocessor as common_build_preprocessor, compute_metrics as common_compute_metrics
+from math import isfinite
 
 
 class OfflineEvaluator:
@@ -75,26 +76,26 @@ class OfflineEvaluator:
         out_dir.mkdir(parents=True, exist_ok=True)
         # ROC
         fig, ax = plt.subplots(figsize=(5, 5))
-        RocCurveDisplay.from_predictions(y_true, pre, name="pre", ax=ax)
-        RocCurveDisplay.from_predictions(y_true, post, name="post", ax=ax)
+        RocCurveDisplay.from_predictions(y_true, pre, name="pre-proba", ax=ax)
+        RocCurveDisplay.from_predictions(y_true, post, name="calibrated-proba", ax=ax)
         ax.plot([0, 1], [0, 1], ls="--", color="gray", lw=1)
-        ax.set_title("ROC")
+        ax.set_title("ROC (probabilities)")
         fig.tight_layout();
         fig.savefig(out_dir / "roc.png");
         plt.close(fig)
         # PR
         fig, ax = plt.subplots(figsize=(5, 5))
-        PrecisionRecallDisplay.from_predictions(y_true, pre, name="pre", ax=ax)
-        PrecisionRecallDisplay.from_predictions(y_true, post, name="post", ax=ax)
-        ax.set_title("PR")
+        PrecisionRecallDisplay.from_predictions(y_true, pre, name="pre-proba", ax=ax)
+        PrecisionRecallDisplay.from_predictions(y_true, post, name="calibrated-proba", ax=ax)
+        ax.set_title("PR (probabilities)")
         fig.tight_layout();
         fig.savefig(out_dir / "pr.png");
         plt.close(fig)
         # Histogram
         fig, ax = plt.subplots(figsize=(5, 4))
-        ax.hist(pre, bins=30, alpha=0.6, label="pre")
-        ax.hist(post, bins=30, alpha=0.6, label="post")
-        ax.set_title("Score histogram")
+        ax.hist(pre, bins=30, alpha=0.6, label="pre-proba")
+        ax.hist(post, bins=30, alpha=0.6, label="calibrated-proba")
+        ax.set_title("Score histogram (probabilities)")
         ax.legend()
         fig.tight_layout();
         fig.savefig(out_dir / "hist_scores.png");
@@ -133,6 +134,41 @@ class OfflineEvaluator:
             "reliability_post": str((out_dir / "reliability_post.png").as_posix()),
         }
 
+    # ------------------------- Metric helpers -------------------------
+    def _brier_manual(self, y: np.ndarray, p: np.ndarray) -> float:
+        y = y.astype(float)
+        p = p.astype(float)
+        return float(np.mean((p - y) ** 2))
+
+    def _nll_manual(self, y: np.ndarray, p: np.ndarray) -> float:
+        y = y.astype(float)
+        p = p.astype(float)
+        eps = 1e-15
+        p = np.clip(p, eps, 1 - eps)
+        return float(-np.mean(y * np.log(p) + (1.0 - y) * np.log(1.0 - p)))
+
+    def _compute_metrics_strict(self, y_true: np.ndarray, y_score: np.ndarray) -> Dict[str, float]:
+        """Compute ROC/PR and explicitly compute Brier and NLL with sanity checks."""
+        # Core metrics
+        roc_auc = float(roc_auc_score(y_true, y_score))
+        pr_auc = float(average_precision_score(y_true, y_score))
+        # Manual
+        brier_m = self._brier_manual(y_true, y_score)
+        nll_m = self._nll_manual(y_true, y_score)
+        # Sklearn refs
+        brier_sk = float(brier_score_loss(y_true, y_score))
+        nll_sk = float(log_loss(y_true, y_score, labels=[0, 1]))
+        # Sanity: they should match closely
+        if not (abs(brier_m - brier_sk) < 1e-10 and abs(nll_m - nll_sk) < 1e-8):
+            # Prefer manual, but keep awareness
+            print(f"[warn] metric mismatch brier(manual={brier_m}, sk={brier_sk}) nll(manual={nll_m}, sk={nll_sk})")
+        return {
+            "roc_auc": roc_auc,
+            "pr_auc": pr_auc,
+            "brier": brier_m,
+            "nll": nll_m,
+        }
+
     # -------------------------- Orchestrate --------------------------
     def main(self) -> None:
         models_dir = Path("models")
@@ -159,9 +195,32 @@ class OfflineEvaluator:
         calibrated = load(models_dir / "model.joblib")
         p_test_post = calibrated.predict_proba(X_test)[:, 1]
 
+        # Guard: ensure shapes and indices align
+        assert p_test_pre.shape == p_test_post.shape == y_test.shape, "Pre/Post/Test shapes must align"
+        assert np.isfinite(p_test_pre).all() and np.isfinite(p_test_post).all(), "Probabilities must be finite"
+        assert (p_test_pre >= 0).all() and (p_test_pre <= 1).all(), "Pre probabilities out of range"
+        assert (p_test_post >= 0).all() and (p_test_post <= 1).all(), "Post probabilities out of range"
+        # Diagnostics: detect rank-breaking transforms (heavy quantization/rounding)
+        n = len(p_test_post)
+        uniq_pre = len(np.unique(np.round(p_test_pre.astype(float), 6)))
+        uniq_post = len(np.unique(np.round(p_test_post.astype(float), 6)))
+        if n > 0:
+            ratio_pre = uniq_pre / n
+            ratio_post = uniq_post / n
+            if ratio_post < 0.02 and ratio_post < ratio_pre / 10:
+                print(f"[warn] post probabilities appear highly quantized: unique_ratio_post={ratio_post:.4f} vs pre={ratio_pre:.4f}")
+        # Optional: write a small debug CSV for manual inspection
+        try:
+            dbg = pd.DataFrame({"y": y_test.to_numpy(), "pre": p_test_pre, "post": p_test_post})
+            artifacts_dir.mkdir(parents=True, exist_ok=True)
+            dbg.sample(min(5000, len(dbg)), random_state=0).to_csv(artifacts_dir / "debug_test_preds_sample.csv", index=False)
+        except Exception:
+            pass
+
         # Compute metrics
-        computed_pre = common_compute_metrics(y_test.to_numpy(), p_test_pre)
-        computed_post = common_compute_metrics(y_test.to_numpy(), p_test_post)
+        y_test_np = y_test.to_numpy()
+        computed_pre = self._compute_metrics_strict(y_test_np, p_test_pre)
+        computed_post = self._compute_metrics_strict(y_test_np, p_test_post)
 
         # Plots
         figs_curves = self.plot_roc_pr(y_test.to_numpy(), p_test_pre, p_test_post, artifacts_dir)

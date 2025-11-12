@@ -122,6 +122,11 @@ class AppState:
 
     def shutdown_background(self) -> None:
         """Signal background worker to stop."""
+        # Attempt a final metrics flush for a clean shutdown
+        try:
+            self.flush_live_metrics()
+        except Exception:
+            pass
         if self._bg_queue is not None:
             self._bg_queue.put(None)  # type: ignore[arg-type]
         if self._bg_thread is not None:
