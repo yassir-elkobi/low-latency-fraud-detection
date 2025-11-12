@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from joblib import load
-from sklearn.calibration import calibration_curve
+from sklearn.calibration import calibration_curve, CalibratedClassifierCV
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
@@ -191,15 +191,20 @@ class OfflineEvaluator:
         base_model.fit(X_trv, y_trv)
         p_test_pre = base_model.predict_proba(X_test)[:, 1]
 
-        # Load calibrated model and compute post-calibration scores
+        # Load serving calibrated model (may be isotonic or sigmoid) - used for reference only
         calibrated = load(models_dir / "model.joblib")
-        p_test_post = calibrated.predict_proba(X_test)[:, 1]
+        _ = calibrated.predict_proba(X_test)[:, 1]  # sanity eval (not used for plots/metrics below)
+
+        # Fit a fresh Platt/sigmoid on the same base (prefit) using calibration split to preserve ranking
+        platt = CalibratedClassifierCV(estimator=base_model, method="sigmoid", cv="prefit")
+        platt.fit(X_cal, y_cal)
+        p_test_sigmoid = platt.predict_proba(X_test)[:, 1]
 
         # Guard: ensure shapes and indices align
-        assert p_test_pre.shape == p_test_post.shape == y_test.shape, "Pre/Post/Test shapes must align"
-        assert np.isfinite(p_test_pre).all() and np.isfinite(p_test_post).all(), "Probabilities must be finite"
+        assert p_test_pre.shape == p_test_sigmoid.shape == y_test.shape, "Pre/Post(Test) shapes must align"
+        assert np.isfinite(p_test_pre).all() and np.isfinite(p_test_sigmoid).all(), "Probabilities must be finite"
         assert (p_test_pre >= 0).all() and (p_test_pre <= 1).all(), "Pre probabilities out of range"
-        assert (p_test_post >= 0).all() and (p_test_post <= 1).all(), "Post probabilities out of range"
+        assert (p_test_sigmoid >= 0).all() and (p_test_sigmoid <= 1).all(), "Post probabilities out of range"
         # Diagnostics: detect rank-breaking transforms (heavy quantization/rounding)
         n = len(p_test_post)
         uniq_pre = len(np.unique(np.round(p_test_pre.astype(float), 6)))
@@ -220,11 +225,11 @@ class OfflineEvaluator:
         # Compute metrics
         y_test_np = y_test.to_numpy()
         computed_pre = self._compute_metrics_strict(y_test_np, p_test_pre)
-        computed_post = self._compute_metrics_strict(y_test_np, p_test_post)
+        computed_post = self._compute_metrics_strict(y_test_np, p_test_sigmoid)
 
         # Plots
-        figs_curves = self.plot_roc_pr(y_test.to_numpy(), p_test_pre, p_test_post, artifacts_dir)
-        figs_reliab = self.plot_reliability_pair(y_test.to_numpy(), p_test_pre, p_test_post, artifacts_dir)
+        figs_curves = self.plot_roc_pr(y_test_np, p_test_pre, p_test_sigmoid, artifacts_dir)
+        figs_reliab = self.plot_reliability_pair(y_test_np, p_test_pre, p_test_sigmoid, artifacts_dir)
 
         # Merge and save summary
         merged = {

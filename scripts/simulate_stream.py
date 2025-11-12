@@ -203,13 +203,11 @@ class StreamSimulator:
                 if total_pos > 0 and self.alpha_pos_override is None:
                     cov_pos_so_far = (covered_pos / total_pos)
                     gap = (1.0 - self.alpha) - cov_pos_so_far
-                    # Move alpha in the opposite direction of the gap (bounded for stability)
                     alpha_pos_eff = float(min(0.5, max(1e-6, self.alpha - 0.75 * gap)))
                 # Evaluate coverage with label-conditional thresholds BEFORE updating with this label
-                q_pos_eff = 1.0 - alpha_pos_eff
                 pos_buf = self._get_pos_buf(seg_j)
                 neg_buf = self._get_neg_buf(seg_j)
-                tau_pos = pos_buf.conformal_tau(min(0.999999, q_pos_eff))
+                tau_pos = pos_buf.conformal_tau(self._q_pos())
                 tau_neg = neg_buf.conformal_tau(self.q)
                 if np.isnan(tau_pos) or np.isnan(tau_neg):
                     # If either buffer is empty during early warmup, allow both labels (conservative)
@@ -255,10 +253,9 @@ class StreamSimulator:
             j, yj = pending.popleft()
             pj = float(probs[j])
             seg_j = int(segments[j]) if segments is not None else 0
-            q_pos_eff = 1.0 - alpha_pos_eff
             pos_buf = self._get_pos_buf(seg_j)
             neg_buf = self._get_neg_buf(seg_j)
-            tau_pos = pos_buf.conformal_tau(min(0.999999, q_pos_eff))
+            tau_pos = pos_buf.conformal_tau(self._q_pos())
             tau_neg = neg_buf.conformal_tau(self.q)
             if np.isnan(tau_pos) or np.isnan(tau_neg):
                 in_pos = True
@@ -452,7 +449,8 @@ def main() -> None:
             vals = [int(v) for v in str(args.ablate_windows).split(",") if v.strip()]
             for w in vals:
                 sim_w = StreamSimulator(alpha=args.alpha, mode="window", window=w, decay=args.decay,
-                                        label_delay=args.label_delay, warmup=args.warmup)
+                                        label_delay=args.label_delay, warmup=args.warmup,
+                                        alpha_pos=args.alpha, mondrian_seg="label")
                 log_w = sim_w.simulate(probs=probs, y_true=y_test.to_numpy())
                 records.append({
                     "mode": "window",
@@ -471,7 +469,8 @@ def main() -> None:
             decays_extra = [float(v) for v in str(args.ablate_decays).split(",") if v.strip()]
             for d in decays_extra:
                 sim_d = StreamSimulator(alpha=args.alpha, mode="exp", window=args.window, decay=d,
-                                        label_delay=args.label_delay, warmup=args.warmup, mondrian_seg="label")
+                                        label_delay=args.label_delay, warmup=args.warmup,
+                                        alpha_pos=args.alpha, mondrian_seg="label")
                 log_d = sim_d.simulate(probs=probs, y_true=y_test.to_numpy())
                 records.append({
                     "mode": "exp",
@@ -490,7 +489,8 @@ def main() -> None:
             vals = [float(v) for v in str(args.ablate_decays).split(",") if v.strip()]
             for d in vals:
                 sim_d = StreamSimulator(alpha=args.alpha, mode="exp", window=args.window, decay=d,
-                                        label_delay=args.label_delay, warmup=args.warmup)
+                                        label_delay=args.label_delay, warmup=args.warmup,
+                                        alpha_pos=args.alpha, mondrian_seg="label")
                 log_d = sim_d.simulate(probs=probs, y_true=y_test.to_numpy())
                 records.append({
                     "mode": "exp",
