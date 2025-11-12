@@ -206,9 +206,9 @@ class OfflineEvaluator:
         assert (p_test_pre >= 0).all() and (p_test_pre <= 1).all(), "Pre probabilities out of range"
         assert (p_test_sigmoid >= 0).all() and (p_test_sigmoid <= 1).all(), "Post probabilities out of range"
         # Diagnostics: detect rank-breaking transforms (heavy quantization/rounding)
-        n = len(p_test_post)
+        n = len(p_test_sigmoid)
         uniq_pre = len(np.unique(np.round(p_test_pre.astype(float), 6)))
-        uniq_post = len(np.unique(np.round(p_test_post.astype(float), 6)))
+        uniq_post = len(np.unique(np.round(p_test_sigmoid.astype(float), 6)))
         if n > 0:
             ratio_pre = uniq_pre / n
             ratio_post = uniq_post / n
@@ -216,7 +216,7 @@ class OfflineEvaluator:
                 print(f"[warn] post probabilities appear highly quantized: unique_ratio_post={ratio_post:.4f} vs pre={ratio_pre:.4f}")
         # Optional: write a small debug CSV for manual inspection
         try:
-            dbg = pd.DataFrame({"y": y_test.to_numpy(), "pre": p_test_pre, "post": p_test_post})
+            dbg = pd.DataFrame({"y": y_test.to_numpy(), "pre": p_test_pre, "post": p_test_sigmoid})
             artifacts_dir.mkdir(parents=True, exist_ok=True)
             dbg.sample(min(5000, len(dbg)), random_state=0).to_csv(artifacts_dir / "debug_test_preds_sample.csv", index=False)
         except Exception:
