@@ -135,16 +135,26 @@ class StreamSimulator:
 
     def __init__(self, alpha: float = 0.05, mode: str = "window", window: int = 2000, decay: float = 0.01,
                  label_delay: int = 200, warmup: int = 200, alpha_pos: float | None = None,
-                 mondrian_seg: str = "label") -> None:
+                 mondrian_seg: str = "label",
+                 alpha_neg: float | None = None,
+                 adapt_gain: float = 0.4,
+                 adapt_gain_pos: float = 0.9,
+                 adapt_start_pos_n: int = 100,
+                 pos_slack: float = 0.0) -> None:
         self.alpha = alpha
         self.q = 1.0 - alpha
         self.alpha_pos_override = alpha_pos
+        self.alpha_neg_override = alpha_neg
         self.mode = mode
         self.window = window
         self.decay = decay
         self.label_delay = label_delay
         self.warmup = warmup
         self.mondrian_seg = mondrian_seg  # "label", "label_amount", "label_hour"
+        self.adapt_gain = float(adapt_gain)
+        self.adapt_gain_pos = float(adapt_gain_pos)
+        self.adapt_start_pos_n = int(adapt_start_pos_n)
+        self.pos_slack = max(0.0, float(pos_slack))
         # Buffers: either single per label, or per (label, segment)
         self.buf_pos = WindowBuf(window) if mode == "window" else ExpBuf(decay)
         self.buf_neg = WindowBuf(window) if mode == "window" else ExpBuf(decay)
@@ -174,7 +184,9 @@ class StreamSimulator:
             # Conservative: use minimum effective_n across segments to avoid overconfidence
             vals = [b.effective_n() for b in self.buf_pos_map.values()] or [0.0]
             npos_eff = float(min(vals))
-        slack = min(0.02, 1.0 / (max(1.0, npos_eff) + 1.0))
+        if self.pos_slack <= 0.0:
+            return min(0.999999, self.q)
+        slack = min(self.pos_slack, 1.0 / (max(1.0, npos_eff) + 1.0))
         return min(0.999999, self.q + slack)
 
     def simulate(self, probs: np.ndarray, y_true: np.ndarray, segments: np.ndarray | None = None) -> Dict[str, Any]:
@@ -185,6 +197,7 @@ class StreamSimulator:
         sum_set_size = 0.0
         ambiguous = 0
         alpha_pos_eff = self.alpha_pos_override if self.alpha_pos_override is not None else self.alpha
+        pos_adapt_started_total: int | None = None
         idx_hist: List[int] = []
         cov_hist: List[float] = []
         cov_pos_hist: List[float] = []
@@ -200,15 +213,20 @@ class StreamSimulator:
                 pj = float(probs[j])
                 seg_j = int(segments[j]) if segments is not None else 0
                 # Optionally adapt positive-class alpha based on observed coverage so far
-                if total_pos > 0 and self.alpha_pos_override is None:
+                if total_pos >= self.adapt_start_pos_n and self.alpha_pos_override is None:
                     cov_pos_so_far = (covered_pos / total_pos)
                     gap = (1.0 - self.alpha) - cov_pos_so_far
-                    alpha_pos_eff = float(min(0.5, max(1e-6, self.alpha - 0.75 * gap)))
+                    alpha_pos_eff = float(min(0.5, max(1e-6, self.alpha - self.adapt_gain_pos * gap)))
+                    if pos_adapt_started_total is None:
+                        pos_adapt_started_total = total
                 # Evaluate coverage with label-conditional thresholds BEFORE updating with this label
                 pos_buf = self._get_pos_buf(seg_j)
                 neg_buf = self._get_neg_buf(seg_j)
                 tau_pos = pos_buf.conformal_tau(self._q_pos())
-                tau_neg = neg_buf.conformal_tau(self.q)
+                # Allow separate (optional) alpha for non-fraud class
+                alpha_neg_eff = self.alpha_neg_override if self.alpha_neg_override is not None else self.alpha
+                q_neg_eff = min(0.999999, 1.0 - alpha_neg_eff)
+                tau_neg = neg_buf.conformal_tau(q_neg_eff)
                 if np.isnan(tau_pos) or np.isnan(tau_neg):
                     # If either buffer is empty during early warmup, allow both labels (conservative)
                     in_pos = True
@@ -240,6 +258,29 @@ class StreamSimulator:
                 else:
                     total_neg += 1
                     covered_neg += int(in_set)
+                # Periodic instrumentation every 1000 labeled events
+                if (total > 0) and (total % 1000 == 0):
+                    if self.mondrian_seg == "label":
+                        n_eff_pos = self.buf_pos.effective_n()
+                        n_eff_neg = self.buf_neg.effective_n()
+                        tau_pos_now = self.buf_pos.conformal_tau(self._q_pos())
+                        alpha_neg_eff = self.alpha_neg_override if self.alpha_neg_override is not None else self.alpha
+                        q_neg_eff_now = min(0.999999, 1.0 - alpha_neg_eff)
+                        tau_neg_now = self.buf_neg.conformal_tau(q_neg_eff_now)
+                    else:
+                        n_eff_pos = sum(b.effective_n() for b in self.buf_pos_map.values())
+                        n_eff_neg = sum(b.effective_n() for b in self.buf_neg_map.values())
+                        tau_pos_now = float("nan")
+                        tau_neg_now = float("nan")
+                    print(json.dumps({
+                        "tick": total,
+                        "n_pos_labeled": total_pos,
+                        "n_eff_pos": n_eff_pos,
+                        "n_eff_neg": n_eff_neg,
+                        "tau_pos": tau_pos_now,
+                        "tau_neg": tau_neg_now,
+                        "alpha_pos_eff": alpha_pos_eff,
+                    }))
                 if total >= self.warmup:
                     idx_hist.append(total)
                     cov_hist.append(covered / total)
@@ -256,7 +297,9 @@ class StreamSimulator:
             pos_buf = self._get_pos_buf(seg_j)
             neg_buf = self._get_neg_buf(seg_j)
             tau_pos = pos_buf.conformal_tau(self._q_pos())
-            tau_neg = neg_buf.conformal_tau(self.q)
+            alpha_neg_eff = self.alpha_neg_override if self.alpha_neg_override is not None else self.alpha
+            q_neg_eff = min(0.999999, 1.0 - alpha_neg_eff)
+            tau_neg = neg_buf.conformal_tau(q_neg_eff)
             if np.isnan(tau_pos) or np.isnan(tau_neg):
                 in_pos = True
                 in_neg = True
@@ -325,6 +368,7 @@ class StreamSimulator:
             "ambiguous_share": ambiguous_share,
             "warmup": self.warmup,
             "alpha_pos_eff": alpha_pos_eff,
+            "pos_adapt_started_total": pos_adapt_started_total,
         }
 
 
@@ -332,12 +376,17 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Streaming Conformal Simulator")
     parser.add_argument("--alpha", type=float, default=0.05)
     parser.add_argument("--alpha_pos", type=float, default=None, help="Optional stricter alpha for fraud class")
+    parser.add_argument("--alpha_neg", type=float, default=None, help="Optional alpha for non-fraud class")
     parser.add_argument("--mode", choices=["window", "exp"], default="window")
     parser.add_argument("--window", type=int, default=2000)
     parser.add_argument("--decay", type=float, default=0.01)
     parser.add_argument("--label_delay", type=int, default=200)
     parser.add_argument("--max_events", type=int, default=0, help="Limit number of streamed events (0 = no limit)")
     parser.add_argument("--warmup", type=int, default=200, help="Do not report coverage until >= warmup labels")
+    parser.add_argument("--adapt_gain", type=float, default=0.4, help="Adaptation gain for alpha_pos (0-1)")
+    parser.add_argument("--adapt_gain_pos", type=float, default=0.9, help="Positive-class adaptation gain (0-1)")
+    parser.add_argument("--adapt_start_pos_n", type=int, default=100, help="Start adapting after N positive labels")
+    parser.add_argument("--pos_slack", type=float, default=0.0, help="Max extra slack added to q_pos (0 to disable)")
     # Ablation controls
     parser.add_argument("--ablate", action="store_true", help="Run ablation over window sizes or decays")
     parser.add_argument("--ablate_windows", type=str, default="500,2000,8000", help="Comma-separated window sizes")
@@ -379,8 +428,10 @@ def plot_coverage(log: Dict[str, Any], alpha: float, out_dir: Path) -> Path:
     return png_path
 
 
-def save_outputs(log: Dict[str, Any], args: argparse.Namespace, out_dir: Path, seg_desc: Dict[str, Any] | None = None) -> None:
+def save_outputs(log: Dict[str, Any], args: argparse.Namespace, out_dir: Path,
+                 seg_desc: Dict[str, Any] | None = None) -> None:
     pd.DataFrame(log).to_csv(out_dir / "streaming_metrics.csv", index=False)
+    target = 1.0 - args.alpha
     summary = {
         "alpha": args.alpha,
         "alpha_pos": args.alpha_pos,
@@ -398,6 +449,12 @@ def save_outputs(log: Dict[str, Any], args: argparse.Namespace, out_dir: Path, s
         "avg_set_size": log.get("avg_set_size"),
         "effective_n": log.get("effective_n"),
         "ambiguous_share": log.get("ambiguous_share"),
+        "delta_coverage": (None if log["final_coverage"] is None else float(log["final_coverage"] - target)),
+        "delta_coverage_pos": (
+            None if log.get("final_coverage_pos") is None else float(log["final_coverage_pos"] - target)),
+        "delta_coverage_neg": (
+            None if log.get("final_coverage_neg") is None else float(log["final_coverage_neg"] - target)),
+        "pos_adapt_started_total": log.get("pos_adapt_started_total"),
         "artifacts": {
             "stream_coverage": str((out_dir / "stream_coverage.png").as_posix()),
             "streaming_metrics": str((out_dir / "streaming_metrics.csv").as_posix()),
@@ -436,7 +493,10 @@ def main() -> None:
     seg_main, seg_desc = compute_segments(args.mondrian_seg, X_test)
     sim = StreamSimulator(alpha=args.alpha, mode=args.mode, window=args.window, decay=args.decay,
                           label_delay=args.label_delay, warmup=args.warmup, alpha_pos=args.alpha_pos,
-                          mondrian_seg=args.mondrian_seg)
+                          mondrian_seg=args.mondrian_seg, alpha_neg=args.alpha_neg,
+                          adapt_gain=args.adapt_gain, adapt_gain_pos=args.adapt_gain_pos,
+                          adapt_start_pos_n=args.adapt_start_pos_n,
+                          pos_slack=args.pos_slack)
     log = sim.simulate(probs=probs, y_true=y_test.to_numpy(), segments=seg_main)
     out = Path("artifacts")
     plot_coverage(log, args.alpha, out)
@@ -450,7 +510,10 @@ def main() -> None:
             for w in vals:
                 sim_w = StreamSimulator(alpha=args.alpha, mode="window", window=w, decay=args.decay,
                                         label_delay=args.label_delay, warmup=args.warmup,
-                                        alpha_pos=args.alpha, mondrian_seg="label")
+                                        alpha_pos=args.alpha, alpha_neg=args.alpha, mondrian_seg="label",
+                                        adapt_gain=args.adapt_gain, adapt_gain_pos=args.adapt_gain_pos,
+                                        adapt_start_pos_n=args.adapt_start_pos_n,
+                                        pos_slack=args.pos_slack)
                 log_w = sim_w.simulate(probs=probs, y_true=y_test.to_numpy())
                 records.append({
                     "mode": "window",
@@ -470,7 +533,10 @@ def main() -> None:
             for d in decays_extra:
                 sim_d = StreamSimulator(alpha=args.alpha, mode="exp", window=args.window, decay=d,
                                         label_delay=args.label_delay, warmup=args.warmup,
-                                        alpha_pos=args.alpha, mondrian_seg="label")
+                                        alpha_pos=args.alpha, alpha_neg=args.alpha, mondrian_seg="label",
+                                        adapt_gain=args.adapt_gain, adapt_gain_pos=args.adapt_gain_pos,
+                                        adapt_start_pos_n=args.adapt_start_pos_n,
+                                        pos_slack=args.pos_slack)
                 log_d = sim_d.simulate(probs=probs, y_true=y_test.to_numpy())
                 records.append({
                     "mode": "exp",
@@ -490,7 +556,10 @@ def main() -> None:
             for d in vals:
                 sim_d = StreamSimulator(alpha=args.alpha, mode="exp", window=args.window, decay=d,
                                         label_delay=args.label_delay, warmup=args.warmup,
-                                        alpha_pos=args.alpha, mondrian_seg="label")
+                                        alpha_pos=args.alpha, alpha_neg=args.alpha, mondrian_seg="label",
+                                        adapt_gain=args.adapt_gain, adapt_gain_pos=args.adapt_gain_pos,
+                                        adapt_start_pos_n=args.adapt_start_pos_n,
+                                        pos_slack=args.pos_slack)
                 log_d = sim_d.simulate(probs=probs, y_true=y_test.to_numpy())
                 records.append({
                     "mode": "exp",
@@ -513,7 +582,10 @@ def main() -> None:
             # Fix positive-class alpha to the same value to avoid adaptation during ablation
             sim_a = StreamSimulator(alpha=alpha_mis, mode=args.mode, window=args.window, decay=args.decay,
                                     label_delay=args.label_delay, warmup=args.warmup, alpha_pos=alpha_mis,
-                                    mondrian_seg="label")
+                                    alpha_neg=alpha_mis, mondrian_seg="label",
+                                    adapt_gain=args.adapt_gain, adapt_gain_pos=args.adapt_gain_pos,
+                                    adapt_start_pos_n=args.adapt_start_pos_n,
+                                    pos_slack=args.pos_slack)
             log_a = sim_a.simulate(probs=probs, y_true=y_test.to_numpy(), segments=np.zeros_like(probs, dtype=int))
             # Compute label-conditional positive-class conservative quantile and index at the end
             q_pos = min(0.999999, 1.0 - alpha_mis)
@@ -553,7 +625,10 @@ def main() -> None:
         for seg_name, seg_arr, seg_info in seg_rows:
             sim_seg = StreamSimulator(alpha=args.alpha, mode=args.mode, window=args.window, decay=args.decay,
                                       label_delay=args.label_delay, warmup=args.warmup, alpha_pos=args.alpha_pos,
-                                      mondrian_seg=seg_name)
+                                      alpha_neg=args.alpha, mondrian_seg=seg_name,
+                                      adapt_gain=args.adapt_gain, adapt_gain_pos=args.adapt_gain_pos,
+                                      adapt_start_pos_n=args.adapt_start_pos_n,
+                                      pos_slack=args.pos_slack)
             log_seg = sim_seg.simulate(probs=probs, y_true=y_test.to_numpy(), segments=seg_arr)
             records.append({
                 "mode": args.mode,
