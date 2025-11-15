@@ -4,13 +4,15 @@ import time
 from fastapi import APIRouter, HTTPException, Header
 from ..state import AppState
 
+"""Administrative endpoints guarded by a static token and env toggle.
+
+Provides a POST /admin/flush endpoint to trigger an immediate background
+metrics flush. Rate-limited to avoid abuse.
+"""
+
 
 class AdminRouter:
-    """Administrative endpoints guarded by a static token and env toggle.
-
-    Provides a POST /admin/flush endpoint to trigger an immediate background
-    metrics flush. Rate-limited to avoid abuse.
-    """
+    """Router for admin-only operations guarded by env toggles and a token."""
 
     def __init__(self, state: AppState) -> None:
         self.state = state
@@ -20,11 +22,13 @@ class AdminRouter:
         self.router.add_api_route("/admin/flush", self.flush_now, methods=["POST"])
 
     def _check_enabled(self) -> None:
+        """Ensure admin endpoints are enabled via ENABLE_ADMIN env."""
         enabled = os.getenv("ENABLE_ADMIN", "false").lower() in ("1", "true", "yes")
         if not enabled:
             raise HTTPException(status_code=403, detail="Admin endpoints disabled")
 
     def _check_token(self, token: str | None) -> None:
+        """Validate the X-Admin-Token header against ADMIN_TOKEN env."""
         expected = os.getenv("ADMIN_TOKEN", "")
         if not expected or token != expected:
             raise HTTPException(status_code=401, detail="Unauthorized")

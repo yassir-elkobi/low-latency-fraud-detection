@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Any
 import time
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
@@ -10,21 +10,23 @@ from .routers.predict import PredictRouter
 from .routers.service_metrics import ServiceMetricsRouter
 from .routers.admin import AdminRouter
 
-DEFAULT_TITLE = "LowLatencyFraudDetection"
-DEFAULT_VERSION = "0.1.0"
+DEFAULT_TITLE = "Low Latency Fraud Detection"
+DEFAULT_VERSION = "1.0.0"
 DEFAULT_MODEL_PATH = "models/model.joblib"
 DEFAULT_RING_BUFFER_SIZE = 20000
 DEFAULT_STATIC_DIR = "app/static"
 DEFAULT_TEMPLATES_DIR = "app/templates"
 
+"""FastAPI application factory and bootstrapper for LowLatencyFraudDetection.
+
+Responsible for constructing the FastAPI app, attaching middleware for
+latency instrumentation, mounting static files and Jinja templates, and
+registering API routers for health, prediction, and service metrics.
+"""
+
 
 class Application:
-    """FastAPI application factory and bootstrapper for LowLatencyFraudDetection.
-
-    Responsible for constructing the FastAPI app, attaching middleware for
-    latency instrumentation, mounting static files and Jinja templates, and
-    registering API routers for health, prediction, and service metrics.
-    """
+    """Builder for the FastAPI app with middleware, routers, and dashboard."""
 
     def __init__(
             self,
@@ -68,7 +70,6 @@ class Application:
         assert self.app is not None
         static_dir = static_path or DEFAULT_STATIC_DIR
         self.app.mount("/static", StaticFiles(directory=static_dir), name="static")
-        self.app.move_to_end if False else None  # placeholder to keep formatting stable
         self.app.mount("/artifacts", StaticFiles(directory="artifacts"), name="artifacts")
         return self
 
@@ -80,7 +81,6 @@ class Application:
         self._register_dashboard_route()
         return self
 
-    # -------------------------- internals --------------------------
     def _add_latency_middleware(self) -> None:
         assert self.app is not None and self.state is not None
 
@@ -106,17 +106,6 @@ class Application:
         @self.app.get("/", response_class=HTMLResponse)
         async def dashboard(request: Request) -> HTMLResponse:  # type: ignore[override]
             return self.templates.TemplateResponse("index.html", {"request": request})
-
-
-"""
-FastAPI application factory and integration points.
-
-Exposes a function to create and configure the FastAPI app, including
-middleware for latency instrumentation, routers registration, and
-templating/static mounting for the minimal dashboard.
-"""
-
-from typing import Any
 
 
 def create_app() -> Any:

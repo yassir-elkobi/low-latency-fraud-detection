@@ -13,14 +13,14 @@ Displays latency percentiles (p50/p95/p99), throughput, and streaming coverage.
 <body>
 <div id="app">
     <h1>Low Latency Fraud Detection</h1>
-    <div id="nav" style="display:flex; gap:0.5rem; justify-content:center; margin-bottom:1rem;">
+    <div id="nav" class="nav-tabs">
         <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
         <button class="tab-btn" data-tab="metrics">Metrics</button>
         <button class="tab-btn" data-tab="health">Health</button>
         <button class="tab-btn" data-tab="predict">Predict</button>
     </div>
 
-    <div id="section-dashboard" class="tab-section" style="display:block;">
+    <div id="section-dashboard" class="tab-section show">
         <div id="cards"></div>
         <div class="grid two-col">
             <div id="latencyBlock">
@@ -33,13 +33,13 @@ Displays latency percentiles (p50/p95/p99), throughput, and streaming coverage.
                 <div id="offlineMetrics" class="card"></div>
             </div>
         </div>
-        <div id="offlineImages" style="margin-top:0.5rem;"></div>
-        <h2 style="margin-top:1rem;">Baselines (CV)</h2>
+        <div id="offlineImages" class="mt-05"></div>
+        <h2 class="mt-1">Baselines (CV)</h2>
         <div id="baselinesCV" class="card"></div>
 
-        <h2 style="margin-top:1rem;">Streaming Coverage</h2>
-        <div id="streamConfig" class="muted" style="margin-bottom:0.5rem;"></div>
-        <div id="streamStats" class="card" style="margin-bottom:0.5rem;"></div>
+        <h2 class="mt-1">Streaming Coverage</h2>
+        <div id="streamConfig" class="muted mb-05"></div>
+        <div id="streamStats" class="card mb-05"></div>
         <div class="grid two-col">
             <div id="coverageBlock">
                 <h3 id="coverageTitle" class="figure-title"></h3>
@@ -48,43 +48,42 @@ Displays latency percentiles (p50/p95/p99), throughput, and streaming coverage.
             </div>
             <div id="histSlot" class="card"></div>
         </div>
-        <div style="margin-top:0.5rem">
+        <div class="mt-05">
             <em class="muted">Latest coverage image:</em>
-            <div><img id="streamImg" src="" alt="stream coverage"
-                      style="max-width:480px;border:1px solid #eee;border-radius: 6px;"/></div>
-            <div style="margin-top:0.5rem">
+            <div><img id="streamImg" src="" alt="stream coverage" class="img-frame"/></div>
+            <div class="mt-05">
                 <a href="/artifacts/stream_coverage.png" target="_blank">Download stream_coverage.png</a> ·
                 <a href="/artifacts/streaming_metrics.csv" target="_blank">Download streaming_metrics.csv</a> ·
                 <a href="/artifacts/stream_summary.json" target="_blank">Download stream_summary.json</a>
             </div>
         </div>
 
-        <h2 style="margin-top:1rem;">Streaming Ablation</h2>
-        <div style="margin-bottom:0.5rem;">
+        <h2 class="mt-1">Streaming Ablation</h2>
+        <div class="mb-05">
             <button id="genAblationBtn">Generate ablation</button>
         </div>
         <div id="ablationTable" class="card"></div>
     </div>
 
-    <div id="section-metrics" class="tab-section" style="display:none;">
+    <div id="section-metrics" class="tab-section">
         <h2>Service Metrics (/metrics)</h2>
         <button id="refreshMetrics">Refresh</button>
         <pre id="metricsJson" class="code"></pre>
     </div>
 
-    <div id="section-health" class="tab-section" style="display:none;">
+    <div id="section-health" class="tab-section">
         <h2>Health</h2>
         <button id="refreshHealth">Refresh</button>
         <pre id="healthJson" class="code"></pre>
     </div>
 
-    <div id="section-predict" class="tab-section" style="display:none;">
+    <div id="section-predict" class="tab-section">
         <h2>Predict</h2>
-        <div style="margin-bottom:0.5rem;">
+        <div class="mb-05">
             <button id="loadPredictExample">Load example payload</button>
         </div>
-        <textarea id="predictPayload" rows="10" style="width:100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;"></textarea>
-        <div style="margin-top:0.5rem;">
+        <textarea id="predictPayload" rows="10" class="w-full mono"></textarea>
+        <div class="mt-05">
             <button id="sendPredict">Send</button>
         </div>
         <pre id="predictOut" class="code"></pre>

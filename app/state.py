@@ -8,15 +8,15 @@ import time
 import json
 import os
 
+"""Centralized application state for the LowLatencyFraudDetection service.
+
+Owns the calibrated model artifact, minimal model metadata, and the shared
+latency ring buffer used for tail-latency metrics. Provides simple accessors
+and lifecycle hooks to load/reload the model and expose runtime state.
+"""
+
 
 class AppState:
-    """Centralized application state for the LowLatencyFraudDetection service.
-
-    Owns the calibrated model artifact, minimal model metadata, and the shared
-    latency ring buffer used for tail-latency metrics. Provides simple accessors
-    and lifecycle hooks to load/reload the model and expose runtime state.
-    """
-
     _model: Optional[Any] = None
     _model_info: Dict[str, Any] = {}
     _latency_buffer: Optional[LatencyRingBuffer] = None
@@ -74,6 +74,7 @@ class AppState:
         return dict(self._model_info)
 
     def uptime_seconds(self) -> float:
+        """Service uptime in seconds since state initialization."""
         return max(0.0, time.time() - getattr(self, "_start_time", time.time()))
 
     # --------------------- background worker utilities ---------------------

@@ -26,6 +26,23 @@ from sklearn.calibration import calibration_curve
 from scripts.common import load_dataset as common_load_dataset, temporal_split as common_temporal_split, \
     build_preprocessor as common_build_preprocessor, compute_metrics as common_compute_metrics
 
+"""
+Offline baseline training, calibration, and evaluation.
+
+Pipeline:
+- Load dataset and optionally sample earliest fraction.
+- Temporal split: train / valid / calibration / test.
+- Build preprocessing + baseline candidates; select by valid AP.
+- Refit on train+valid; calibrate (sigmoid/isotonic) on calibration split.
+- Evaluate on test; save reliability diagrams.
+- Persist calibrated model and metrics (including CV baselines table).
+
+Outputs:
+- models/model.joblib
+- models/metrics_offline.json (includes metrics_pre/post, baselines_cv, artifact paths)
+- artifacts/reliability_pre.png, artifacts/reliability_post.png
+"""
+
 
 class BaselineTrainer:
     """Train baseline classifiers, calibrate probabilities, and export artifacts.
@@ -236,34 +253,62 @@ class BaselineTrainer:
             cv_mode: str = "stratified",
             cv_group_col: Optional[str] = None,
     ) -> None:
-        # Load
+        df = self._load_and_sample(data_path, sample_frac)
+        X_train, y_train, X_valid, y_valid, X_cal, y_cal, X_test, y_test = self._temporal_split(df, split_ratios)
+        pre, candidates = self._preprocessor_and_candidates(X_train, cv_families)
+        X_trv, y_trv = self._concat_train_valid(X_train, y_train, X_valid, y_valid)
+        cv, groups = self._build_cv_splitter(df, split_ratios, cv_mode, cv_folds, cv_group_col)
+        baselines_cv = self._compute_cv_baselines(candidates, X_trv, y_trv, cv, groups)
+        best_label, base_model, base_meta = self.select_base_model(candidates, X_train, y_train, X_valid, y_valid)
+        base_model.fit(X_trv, y_trv)
+        p_test_raw = base_model.predict_proba(X_test)[:, 1]
+        metrics_raw = common_compute_metrics(y_test.to_numpy(), p_test_raw)
+        calib_model, calib_meta = self.calibrate(base_model, X_cal, y_cal)
+        p_test_cal = calib_model.predict_proba(X_test)[:, 1]
+        metrics_cal = common_compute_metrics(y_test.to_numpy(), p_test_cal)
+        artifacts_path = Path(artifacts_dir)
+        self._save_reliability_plot(y_test.to_numpy(), p_test_raw, artifacts_path / "reliability_pre.png",
+                                    title=f"Reliability (pre) - {best_label}")
+        self._save_reliability_plot(y_test.to_numpy(), p_test_cal, artifacts_path / "reliability_post.png",
+                                    title=f"Reliability (post) - {calib_meta['calibration_method']}")
+        models_path = self._persist_model(calib_model, models_dir)
+        self._write_metrics_json(models_path, artifacts_path, base_meta, calib_meta, metrics_raw, metrics_cal,
+                                 baselines_cv, best_label)
+        self._print_console_summary(base_meta, calib_meta, metrics_raw, metrics_cal)
+
+    # ------------------------- helpers: orchestration pieces -------------------------
+    def _load_and_sample(self, data_path: str | None, sample_frac: float | None) -> pd.DataFrame:
         df = common_load_dataset(path=data_path)
         if sample_frac is not None and 0 < sample_frac < 1.0:
             n = int(len(df) * sample_frac)
             df = df.iloc[: max(1, n)].reset_index(drop=True)
+        return df
 
-        # Split
-        X_train, y_train, X_valid, y_valid, X_cal, y_cal, X_test, y_test = common_temporal_split(df,
-                                                                                                 ratios=split_ratios)
+    def _temporal_split(self, df: pd.DataFrame, split_ratios: Tuple[float, float, float, float]):
+        return common_temporal_split(df, ratios=split_ratios)
 
-        # Preprocessor and candidates
+    def _preprocessor_and_candidates(self, X_train: pd.DataFrame, cv_families: Optional[str]):
         numeric_cols = list(X_train.columns)
         pre = common_build_preprocessor(numeric_cols)
         fams: Optional[Set[str]] = None
         if cv_families:
             fams = {f.strip() for f in cv_families.split(",") if f.strip()}
         candidates = self.candidate_models(pre, families_filter=fams)
+        return pre, candidates
 
-        # Cross-validated baselines on train+valid (report only; not used for fit)
+    def _concat_train_valid(self, X_train: pd.DataFrame, y_train: pd.Series,
+                            X_valid: pd.DataFrame, y_valid: pd.Series):
         X_trv = pd.concat([X_train, X_valid], axis=0)
         y_trv = pd.concat([y_train, y_valid], axis=0)
-        # Build CV splitter (avoid leakage)
+        return X_trv, y_trv
+
+    def _build_cv_splitter(self, df: pd.DataFrame, split_ratios: Tuple[float, float, float, float],
+                           cv_mode: str, cv_folds: int, cv_group_col: Optional[str]):
         cv_folds = max(2, int(cv_folds))
         groups = None
         if cv_mode == "group":
             if not cv_group_col or cv_group_col not in df.columns:
                 raise ValueError(f"cv_mode='group' requires --cv-group-col present in dataset (got {cv_group_col})")
-            # Recreate train+valid slices to align groups
             n_total = len(df)
             n_train = int(n_total * split_ratios[0])
             n_valid = int(n_total * split_ratios[1])
@@ -275,15 +320,16 @@ class BaselineTrainer:
             cv = TimeSeriesSplit(n_splits=cv_folds)
         else:
             cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=self.random_state)
+        return cv, groups
+
+    def _compute_cv_baselines(self, candidates: List[Tuple[str, Dict[str, Any]]],
+                              X_trv: pd.DataFrame, y_trv: pd.Series, cv, groups) -> List[Dict[str, Any]]:
         baselines_cv: List[Dict[str, Any]] = []
         for name, cfg in candidates:
             pipe: Pipeline = cfg["pipeline"]
             label: str = cfg["label"]
-            # ROC-AUC
             roc_scores = cross_val_score(pipe, X_trv, y_trv, cv=cv, scoring="roc_auc", n_jobs=1, groups=groups)
-            # PR-AUC
             pr_scores = cross_val_score(pipe, X_trv, y_trv, cv=cv, scoring="average_precision", n_jobs=1, groups=groups)
-            # Extract key hyperparameters for readability
             params: Dict[str, Any] = {}
             clf = pipe.named_steps.get("clf")
             if isinstance(clf, LogisticRegression):
@@ -306,35 +352,18 @@ class BaselineTrainer:
                 "pr_auc_mean": float(np.mean(pr_scores)),
                 "pr_auc_std": float(np.std(pr_scores)),
             })
+        return baselines_cv
 
-        # Select base on valid
-        best_label, base_model, base_meta = self.select_base_model(candidates, X_train, y_train, X_valid, y_valid)
-
-        # Refit base on train+valid
-        base_model.fit(X_trv, y_trv)
-
-        # Raw scores on test (pre-calibration)
-        p_test_raw = base_model.predict_proba(X_test)[:, 1]
-        metrics_raw = common_compute_metrics(y_test.to_numpy(), p_test_raw)
-
-        # Calibrate on calibration split and evaluate
-        calib_model, calib_meta = self.calibrate(base_model, X_cal, y_cal)
-        p_test_cal = calib_model.predict_proba(X_test)[:, 1]
-        metrics_cal = common_compute_metrics(y_test.to_numpy(), p_test_cal)
-
-        # Save reliability diagrams
-        artifacts_path = Path(artifacts_dir)
-        self._save_reliability_plot(y_test.to_numpy(), p_test_raw, artifacts_path / "reliability_pre.png",
-                                    title=f"Reliability (pre) - {best_label}")
-        self._save_reliability_plot(y_test.to_numpy(), p_test_cal, artifacts_path / "reliability_post.png",
-                                    title=f"Reliability (post) - {calib_meta['calibration_method']}")
-
-        # Persist model and metrics
+    def _persist_model(self, calib_model: CalibratedClassifierCV, models_dir: str) -> Path:
         models_path = Path(models_dir)
         models_path.mkdir(parents=True, exist_ok=True)
-        model_out = models_path / "model.joblib"
-        dump(calib_model, model_out)
+        dump(calib_model, models_path / "model.joblib")
+        return models_path
 
+    def _write_metrics_json(self, models_path: Path, artifacts_path: Path,
+                            base_meta: Dict[str, Any], calib_meta: Dict[str, Any],
+                            metrics_raw: Dict[str, float], metrics_cal: Dict[str, float],
+                            baselines_cv: List[Dict[str, Any]], best_label: str) -> None:
         metrics = {
             "base_model": base_meta,
             "calibration": calib_meta,
@@ -351,7 +380,8 @@ class BaselineTrainer:
         with open(models_path / "metrics_offline.json", "w", encoding="utf-8") as f:
             json.dump(metrics, f, indent=2)
 
-        # Console summary
+    def _print_console_summary(self, base_meta: Dict[str, Any], calib_meta: Dict[str, Any],
+                               metrics_raw: Dict[str, float], metrics_cal: Dict[str, float]) -> None:
         print("Selected base:", base_meta)
         print("Calibration:", calib_meta)
         print("Pre-calibration metrics:", metrics_raw)

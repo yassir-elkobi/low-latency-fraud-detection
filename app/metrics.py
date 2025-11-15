@@ -3,15 +3,15 @@ from threading import Lock
 from typing import Dict, List, Optional
 import time
 
+"""Thread-safe fixed-size ring buffer for request latencies (milliseconds).
+
+Stores recent latency measurements up to a maximum capacity (maxlen) and
+exposes utilities to compute tail latency percentiles (p50/p95/p99) on
+demand for observability and dashboarding.
+"""
+
 
 class LatencyRingBuffer:
-    """Thread-safe fixed-size ring buffer for request latencies (milliseconds).
-
-    Stores recent latency measurements up to a maximum capacity (maxlen) and
-    exposes utilities to compute tail latency percentiles (p50/p95/p99) on
-    demand for observability and dashboarding.
-    """
-
     _maxlen: int
     _buffer: Optional[deque] = None
     _lock: Optional[Lock] = None
@@ -49,20 +49,7 @@ class LatencyRingBuffer:
         if not values:
             return {q: 0.0 for q in qs}
         arr = sorted(values)
-        out: Dict[float, float] = {}
-        for q in qs:
-            if q <= 0:
-                out[q] = arr[0]
-                continue
-            if q >= 100:
-                out[q] = arr[-1]
-                continue
-            k = (q / 100.0) * (len(arr) - 1)
-            lo = int(k)
-            hi = min(lo + 1, len(arr) - 1)
-            frac = k - lo
-            out[q] = arr[lo] * (1 - frac) + arr[hi] * frac
-        return out
+        return self._compute_percentiles_sorted(arr, qs)
 
     def rps(self, window_seconds: float = 30.0) -> float:
         """Compute requests-per-second over the last window_seconds."""
@@ -103,23 +90,19 @@ class LatencyRingBuffer:
         """Compute percentiles over entries within the last window_seconds."""
         if window_seconds <= 0:
             return {q: 0.0 for q in qs}
-        now = time.time()
-        cutoff = now - window_seconds
-        with self._lock:  # type: ignore[arg-type]
-            times = list(self._timebuffer)  # type: ignore[union-attr]
-            values = list(self._buffer)  # type: ignore[union-attr]
-        if not times or not values:
-            return {q: 0.0 for q in qs}
-        win_vals: List[float] = []
-        for idx in range(len(times) - 1, -1, -1):
-            if times[idx] >= cutoff:
-                win_vals.append(values[idx])
-            else:
-                break
+        win_vals = self._window_values(window_seconds)
         if not win_vals:
             return {q: 0.0 for q in qs}
         arr = sorted(win_vals)
+        return self._compute_percentiles_sorted(arr, qs)
+
+    # --------------------- internals ---------------------
+    def _compute_percentiles_sorted(self, arr: List[float], qs: List[float]) -> Dict[float, float]:
+        """Linear-interpolated percentiles on a pre-sorted array."""
         out: Dict[float, float] = {}
+        n = len(arr)
+        if n == 0:
+            return {q: 0.0 for q in qs}
         for q in qs:
             if q <= 0:
                 out[q] = arr[0]
@@ -127,9 +110,25 @@ class LatencyRingBuffer:
             if q >= 100:
                 out[q] = arr[-1]
                 continue
-            k = (q / 100.0) * (len(arr) - 1)
+            k = (q / 100.0) * (n - 1)
             lo = int(k)
-            hi = min(lo + 1, len(arr) - 1)
+            hi = min(lo + 1, n - 1)
             frac = k - lo
             out[q] = arr[lo] * (1 - frac) + arr[hi] * frac
         return out
+
+    def _window_values(self, window_seconds: float) -> List[float]:
+        """Return values inside the trailing window_seconds based on timestamp buffer."""
+        now = time.time()
+        cutoff = now - window_seconds
+        with self._lock:  # type: ignore[arg-type]
+            times = list(self._timebuffer)  # type: ignore[union-attr]
+            values = list(self._buffer)  # type: ignore[union-attr]
+        win_vals: List[float] = []
+        # iterate backwards; break once outside window for efficiency
+        for idx in range(len(times) - 1, -1, -1):
+            if times[idx] >= cutoff:
+                win_vals.append(values[idx])
+            else:
+                break
+        return win_vals

@@ -10,6 +10,15 @@ from sklearn.preprocessing import StandardScaler
 import numpy as np
 import pandas as pd
 
+"""
+Shared utilities for dataset loading, temporal splitting, preprocessing, and metrics.
+
+Provides:
+- load_dataset: loads local CSV, validates columns, sorts by Time
+- temporal_split: strict chronological split into train/valid/calibration/test
+- build_preprocessor: numeric imputation + scaling pipeline
+- compute_metrics: ROC-AUC, PR-AUC, Brier, NLL on probabilities
+"""
 
 def load_dataset(path: str | None = None) -> pd.DataFrame:
     """Load Credit Card Fraud dataset from local CSV only and sort by Time."""

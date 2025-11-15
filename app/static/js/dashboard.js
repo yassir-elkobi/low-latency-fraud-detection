@@ -1,9 +1,20 @@
+// Dashboard client-side logic for latency/coverage/offline metrics.
+// Keep DOM updates lightweight and avoid heavy timers or blocking work.
+
+/**
+ * Fetch JSON with no-store cache to always get fresh metrics/artifacts.
+ * @param {string} path
+ * @returns {Promise<any>}
+ */
 async function fetchJSON(path) {
     const res = await fetch(path, {cache: 'no-store'});
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
 }
 
+/**
+ * Create metric cards once; subsequent calls are no-ops.
+ */
 function ensureCards() {
     const cards = document.getElementById('cards');
     if (!cards) return;
@@ -20,6 +31,10 @@ function ensureCards() {
     }
 }
 
+/**
+ * Pull live /metrics and update the top cards and latency mini-chart.
+ * Applies 5-minute gating for P95/P99 visibility thresholds.
+ */
 async function refresh() {
     ensureCards();
     try {
@@ -46,11 +61,13 @@ async function refresh() {
         document.getElementById('rps5').textContent = rps5;
         updateChart(metrics);
     } catch (e) {
-        // eslint-disable-next-line no-console
         console.error('Failed to refresh metrics', e);
     }
 }
 
+/**
+ * Initialize tabs, charts, event listeners and periodic refresh loops.
+ */
 function start() {
     initTabs();
     ensureCards();
@@ -61,7 +78,6 @@ function start() {
         assignFigure('latencyTitle', 'latencyCaption', 'Latency (P95 over time)', 'P95 latency sampled from live requests.');
         assignFigure('coverageTitle', 'coverageCaption', 'Streaming coverage', 'Streaming conformal coverage vs target (dashed).');
     } catch (e) {
-        // ignore
     }
     initCoverageChart();
     refreshCoverage();
@@ -84,7 +100,7 @@ function start() {
 
 document.addEventListener('DOMContentLoaded', start);
 
-// --- Simple latency chart (p95 over time) ---
+// --- Latency sparkline state ---
 const chartState = {
     values: [],
     maxPoints: 60,
@@ -92,6 +108,9 @@ const chartState = {
 
 const figureNumbering = {next: 3};
 
+/**
+ * Assign a figure number and title + caption text to slots.
+ */
 function assignFigure(titleId, captionId, titleText, captionText) {
     const t = document.getElementById(titleId);
     const c = document.getElementById(captionId);
@@ -104,7 +123,9 @@ function assignFigure(titleId, captionId, titleText, captionText) {
     c.textContent = captionText;
 }
 
-// --- Tabs ---
+/**
+ * Tabs controller: toggles visible sections.
+ */
 function initTabs() {
     const nav = document.getElementById('nav');
     if (!nav) return;
@@ -124,20 +145,28 @@ function initTabs() {
     });
 }
 
+/**
+ * Prepare latency sparkline canvas.
+ */
 function initChart() {
     const canvas = document.getElementById('latencyChart');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.font = '12px sans-serif';
-    ctx.fillStyle = '#333';
+    const css = getComputedStyle(document.documentElement);
+    ctx.font = css.getPropertyValue('--font-small').trim() || '12px sans-serif';
+    ctx.fillStyle = css.getPropertyValue('--color-text').trim() || '#333';
     ctx.fillText('P95 latency (ms)', 10, 16);
 }
 
+/**
+ * Append the latest P95 value and redraw the sparkline with simple axes.
+ */
 function updateChart(metrics) {
     const canvas = document.getElementById('latencyChart');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
+    const css = getComputedStyle(document.documentElement);
     const w = canvas.width || 640;
     const h = canvas.height || 240;
     canvas.width = w;
@@ -152,20 +181,20 @@ function updateChart(metrics) {
 
     // axes
     ctx.clearRect(0, 0, w, h);
-    ctx.strokeStyle = '#ddd';
+    ctx.strokeStyle = css.getPropertyValue('--color-axis').trim() || '#ddd';
     ctx.beginPath();
     ctx.moveTo(40, 10);
     ctx.lineTo(40, h - 20);
     ctx.lineTo(w - 10, h - 20);
     ctx.stroke();
-    ctx.font = '12px sans-serif';
-    ctx.fillStyle = '#555';
+    ctx.font = css.getPropertyValue('--font-small').trim() || '12px sans-serif';
+    ctx.fillStyle = css.getPropertyValue('--color-axis-text').trim() || '#555';
     ctx.fillText(maxY.toFixed(0), 5, 12);
     ctx.fillText(minY.toFixed(0), 5, h - 20);
 
     // line
     if (vals.length > 1) {
-        ctx.strokeStyle = '#0077ff';
+        ctx.strokeStyle = css.getPropertyValue('--color-line-latency').trim() || '#0077ff';
         ctx.beginPath();
         for (let i = 0; i < vals.length; i++) {
             const x = 40 + (i / (chartState.maxPoints - 1)) * (w - 50);
@@ -176,6 +205,9 @@ function updateChart(metrics) {
     }
 }
 
+/**
+ * Dump raw /metrics JSON into the Metrics tab.
+ */
 async function refreshMetrics() {
     try {
         const data = await fetchJSON('/metrics');
@@ -186,7 +218,7 @@ async function refreshMetrics() {
     }
 }
 
-// --- Streaming coverage chart ---
+// --- Streaming coverage state ---
 const coverageState = {
     idx: [],
     cov: [],
@@ -194,16 +226,23 @@ const coverageState = {
     covNeg: [],
 };
 
+/**
+ * Prepare streaming coverage canvas.
+ */
 function initCoverageChart() {
     const canvas = document.getElementById('coverageChart');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.font = '12px sans-serif';
-    ctx.fillStyle = '#333';
+    const css = getComputedStyle(document.documentElement);
+    ctx.font = css.getPropertyValue('--font-small').trim() || '12px sans-serif';
+    ctx.fillStyle = css.getPropertyValue('--color-text').trim() || '#333';
     ctx.fillText('Coverage (last points)', 10, 16);
 }
 
+/**
+ * Refresh streaming coverage arrays and summary; update chart and text.
+ */
 async function refreshCoverage() {
     const canvas = document.getElementById('coverageChart');
     if (!canvas) return;
@@ -255,10 +294,15 @@ async function refreshCoverage() {
     }
 }
 
+/**
+ * Draw streaming coverage lines (overall and optionally fraud-only)
+ * with target band overlay when in range.
+ */
 function drawCoverageChart() {
     const canvas = document.getElementById('coverageChart');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
+    const css = getComputedStyle(document.documentElement);
     const w = canvas.width || 640;
     const h = canvas.height || 240;
     canvas.width = w;
@@ -273,19 +317,19 @@ function drawCoverageChart() {
 
     // axes
     ctx.clearRect(0, 0, w, h);
-    ctx.strokeStyle = '#ddd';
+    ctx.strokeStyle = css.getPropertyValue('--color-axis').trim() || '#ddd';
     ctx.beginPath();
     ctx.moveTo(40, 10);
     ctx.lineTo(40, h - 20);
     ctx.lineTo(w - 10, h - 20);
     ctx.stroke();
-    ctx.font = '12px sans-serif';
-    ctx.fillStyle = '#555';
+    ctx.font = css.getPropertyValue('--font-small').trim() || '12px sans-serif';
+    ctx.fillStyle = css.getPropertyValue('--color-axis-text').trim() || '#555';
     ctx.fillText(maxY.toFixed(2), 5, 12);
     ctx.fillText(minY.toFixed(2), 5, h - 20);
 
     // line
-    ctx.strokeStyle = '#0a8';
+    ctx.strokeStyle = css.getPropertyValue('--color-line-coverage').trim() || '#0a8';
     ctx.beginPath();
     for (let i = 0; i < vals.length; i++) {
         const x = 40 + (i / (vals.length - 1)) * (w - 50);
@@ -294,9 +338,9 @@ function drawCoverageChart() {
     }
     ctx.stroke();
 
-    // fraud-class coverage line (if available)
+    // fraud-class coverage line
     if (valsPos.length > 1) {
-        ctx.strokeStyle = '#6a0dad'; // purple
+        ctx.strokeStyle = css.getPropertyValue('--color-line-fraud').trim() || '#6a0dad'; // purple
         ctx.beginPath();
         for (let i = 0; i < valsPos.length; i++) {
             const x = 40 + (i / (valsPos.length - 1)) * (w - 50);
@@ -310,8 +354,9 @@ function drawCoverageChart() {
     const target = 0.95;
     if (target >= minY && target <= maxY) {
         const yTarget = (h - 20) - ((target - minY) / (maxY - minY)) * (h - 30);
-        if (ctx.setLineDash) ctx.setLineDash([5, 5]);
-        ctx.strokeStyle = '#e33';
+        const dash = (css.getPropertyValue('--dash-target').trim() || '5,5').split(',').map(x => Number(x.trim()) || 0);
+        if (ctx.setLineDash) ctx.setLineDash(dash);
+        ctx.strokeStyle = css.getPropertyValue('--color-line-target').trim() || '#e33';
         ctx.beginPath();
         ctx.moveTo(40, yTarget);
         ctx.lineTo(w - 10, yTarget);
@@ -321,6 +366,9 @@ function drawCoverageChart() {
 }
 
 // --- Offline metrics & images ---
+/**
+ * Refresh offline metrics table, CV baselines, and figures. Idempotent.
+ */
 async function refreshOffline() {
     const container = document.getElementById('offlineMetrics');
     const imgContainer = document.getElementById('offlineImages');
@@ -350,7 +398,7 @@ async function refreshOffline() {
         html += '</tbody></table>';
         container.innerHTML = html + '<div class="figure-caption">Metrics on held-out test set (no calibration data).</div>';
         imgContainer.innerHTML = '';
-        // Baselines CV table (if present)
+        // Baselines CV table
         if (cvContainer) {
             const rows = Array.isArray(data.baselines_cv) ? data.baselines_cv.slice() : [];
             if (!rows.length) {
@@ -358,10 +406,10 @@ async function refreshOffline() {
             } else {
                 // Sort by PR-AUC mean descending
                 rows.sort((a, b) => (b.pr_auc_mean ?? 0) - (a.pr_auc_mean ?? 0));
-                const fmt = (x, d=4) => (Number.isFinite(x) ? Number(x).toFixed(d) : '-');
+                const fmt = (x, d = 4) => (Number.isFinite(x) ? Number(x).toFixed(d) : '-');
                 const fmtParams = (p) => {
                     if (!p || typeof p !== 'object') return '';
-                    return Object.entries(p).map(([k,v]) => `${k}=${Array.isArray(v) ? JSON.stringify(v) : v}`).join(' ');
+                    return Object.entries(p).map(([k, v]) => `${k}=${Array.isArray(v) ? JSON.stringify(v) : v}`).join(' ');
                 };
                 let t = '<table><thead><tr><th>Model</th><th>Params</th><th>ROC-AUC (CV)</th><th>PR-AUC (CV)</th><th>Chosen</th></tr></thead><tbody>';
                 for (const r of rows) {
@@ -480,7 +528,7 @@ async function refreshOffline() {
             card.appendChild(p);
             imgContainer.appendChild(card);
         }
-        // Update stream image (if exists)
+        // Update stream image
         const streamImg = document.getElementById('affh_stream_img') || document.getElementById('streamImg');
         if (streamImg) {
             const url = '/artifacts/stream_coverage.png';
@@ -498,12 +546,13 @@ async function refreshOffline() {
     }
 }
 
-// --- Streaming ablation table ---
+/**
+ * Read ablation CSV/JSON and render a concise table; show trigger if absent.
+ */
 async function refreshAblation() {
     const container = document.getElementById('ablationTable');
     if (!container) return;
     try {
-        // Prefer JSON; fallback to CSV
         let rows = null;
         try {
             const json = await fetchJSON('/artifacts/stream_ablation.json');
@@ -551,6 +600,9 @@ async function refreshAblation() {
     }
 }
 
+/**
+ * POST to start ablation and poll for table materialization with a timeout.
+ */
 async function generateAblation() {
     const btn = document.getElementById('genAblationBtn');
     if (btn) {
@@ -581,7 +633,9 @@ async function generateAblation() {
     }
 }
 
-// --- Health & Predict ---
+/**
+ * Fetch /health and pretty-print into the Health tab.
+ */
 async function refreshHealth() {
     try {
         const data = await fetchJSON('/health');
@@ -592,6 +646,9 @@ async function refreshHealth() {
     }
 }
 
+/**
+ * Load schema and example predict payload into the textarea.
+ */
 async function loadPredictExample() {
     try {
         const data = await fetchJSON('/predict/schema');
@@ -602,6 +659,9 @@ async function loadPredictExample() {
     }
 }
 
+/**
+ * Send predict request with textarea JSON; print raw text or JSON response.
+ */
 async function sendPredict() {
     try {
         const ta = document.getElementById('predictPayload');

@@ -23,6 +23,7 @@ class PredictRouter:
         self.router.add_api_route("/predict/schema", self.schema, methods=["GET"])
 
     def _expected_columns(self, model: Any) -> List[str]:
+        """Infer expected feature column order from the model's preprocessing pipeline."""
         # Resolve underlying Pipeline regardless of CalibratedClassifierCV wrapper
         try:
             underlying = None

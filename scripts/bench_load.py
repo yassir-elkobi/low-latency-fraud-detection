@@ -10,8 +10,38 @@ from typing import Any, Dict, List
 
 import requests
 
+"""
+Simple load generator for the /predict endpoint.
+
+Supports two modes:
+- Concurrency-based closed-loop load (run_load)
+- Open-loop fixed-RPS load (run_fixed_rps) to avoid coordinated omission
+
+Outputs summary statistics as JSON: count, p50/p95/p99 (ms), mean (ms), and RPS.
+"""
+
+
+def _empty_metrics() -> Dict[str, float]:
+    """Return a standard empty metrics dict with zeros."""
+    return {"count": 0.0, "p50_ms": 0.0, "p95_ms": 0.0, "p99_ms": 0.0, "rps": 0.0}
+
+
+def _percentile(sorted_values: List[float], p: float) -> float:
+    """
+    Linear-interpolated percentile on a pre-sorted list.
+    Expects 0 < p <= 100. Returns 0.0 for empty input.
+    """
+    if not sorted_values:
+        return 0.0
+    k = (p / 100.0) * (len(sorted_values) - 1)
+    lo = int(k)
+    hi = min(lo + 1, len(sorted_values) - 1)
+    frac = k - lo
+    return sorted_values[lo] * (1 - frac) + sorted_values[hi] * frac
+
 
 def worker(url: str, payload: Dict[str, Any], out_q: Queue, stop_at: float) -> None:
+    """Worker thread: repeatedly POSTs payload to url until stop_at, records latency (ms)."""
     session = requests.Session()
     while time.time() < stop_at:
         t0 = time.perf_counter_ns()
@@ -25,6 +55,10 @@ def worker(url: str, payload: Dict[str, Any], out_q: Queue, stop_at: float) -> N
 
 
 def run_load(host: str, port: int, concurrency: int, duration: float, example: Dict[str, Any]) -> Dict[str, float]:
+    """
+    Closed-loop load: spawn `concurrency` threads that continuously send requests
+    for `duration` seconds. Aggregates latencies into percentiles and mean.
+    """
     url = f"http://{host}:{port}/predict"
     payload = example
     stop_at = time.time() + duration
@@ -46,24 +80,15 @@ def run_load(host: str, port: int, concurrency: int, duration: float, example: D
     for th in threads:
         th.join(timeout=0.5)
     if not latencies:
-        return {"count": 0.0, "p50_ms": 0.0, "p95_ms": 0.0, "p99_ms": 0.0, "rps": 0.0}
+        return _empty_metrics()
     latencies_sorted = sorted(latencies)
-
-    def pct(p: float) -> float:
-        if not latencies_sorted:
-            return 0.0
-        k = (p / 100.0) * (len(latencies_sorted) - 1)
-        lo = int(k)
-        hi = min(lo + 1, len(latencies_sorted) - 1)
-        frac = k - lo
-        return latencies_sorted[lo] * (1 - frac) + latencies_sorted[hi] * frac
 
     rps = len(latencies) / duration
     return {
         "count": float(len(latencies)),
-        "p50_ms": pct(50.0),
-        "p95_ms": pct(95.0),
-        "p99_ms": pct(99.0),
+        "p50_ms": _percentile(latencies_sorted, 50.0),
+        "p95_ms": _percentile(latencies_sorted, 95.0),
+        "p99_ms": _percentile(latencies_sorted, 99.0),
         "mean_ms": statistics.fmean(latencies),
         "rps": rps,
     }
@@ -73,7 +98,7 @@ def run_fixed_rps(host: str, port: int, rps: float, duration: float, example: Di
     """Open-loop sender at fixed RPS to avoid coordinated omission."""
     url = f"http://{host}:{port}/predict"
     if rps <= 0 or duration <= 0:
-        return {"count": 0.0, "p50_ms": 0.0, "p95_ms": 0.0, "p99_ms": 0.0, "rps": 0.0}
+        return _empty_metrics()
     session = requests.Session()
     spacing = 1.0 / rps
     start = time.time()
@@ -97,30 +122,22 @@ def run_fixed_rps(host: str, port: int, rps: float, duration: float, example: Di
         if sleep_for > 0:
             time.sleep(min(sleep_for, spacing))
     if not latencies:
-        return {"count": 0.0, "p50_ms": 0.0, "p95_ms": 0.0, "p99_ms": 0.0, "rps": 0.0}
+        return _empty_metrics()
     latencies_sorted = sorted(latencies)
-
-    def pct(p: float) -> float:
-        if not latencies_sorted:
-            return 0.0
-        k = (p / 100.0) * (len(latencies_sorted) - 1)
-        lo = int(k)
-        hi = min(lo + 1, len(latencies_sorted) - 1)
-        frac = k - lo
-        return latencies_sorted[lo] * (1 - frac) + latencies_sorted[hi] * frac
 
     eff_rps = len(latencies) / duration
     return {
         "count": float(len(latencies)),
-        "p50_ms": pct(50.0),
-        "p95_ms": pct(95.0),
-        "p99_ms": pct(99.0),
+        "p50_ms": _percentile(latencies_sorted, 50.0),
+        "p95_ms": _percentile(latencies_sorted, 95.0),
+        "p99_ms": _percentile(latencies_sorted, 99.0),
         "mean_ms": statistics.fmean(latencies),
         "rps": eff_rps,
     }
 
 
 def main() -> None:
+    """CLI entrypoint. See --help for usage examples."""
     parser = argparse.ArgumentParser(description="Simple /predict load tester")
     parser.add_argument("--host", type=str, default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)

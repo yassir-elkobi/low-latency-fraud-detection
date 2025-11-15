@@ -14,6 +14,12 @@ Service metrics endpoint router skeleton.
 
 Provides a GET /metrics endpoint exposing request count, tail latency
 percentiles (p50/p95/p99), and a basic RPS estimate for the dashboard.
+
+Outputs:
+- JSON for live latency and counts (/metrics)
+- JSON for offline metrics (/metrics/offline)
+- Arrays for streaming coverage (/metrics/stream)
+- Fire-and-forget ablation trigger (/metrics/stream/ablate)
 """
 
 

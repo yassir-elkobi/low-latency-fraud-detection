@@ -1,6 +1,8 @@
 from typing import Dict, List, Union
 from pydantic import BaseModel
 
+"""Pydantic schemas for request/response and metrics endpoints."""
+
 
 class PredictIn(BaseModel):
     """Prediction input schema for the API.
