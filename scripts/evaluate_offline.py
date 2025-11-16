@@ -91,19 +91,44 @@ class OfflineEvaluator:
         out_dir.mkdir(parents=True, exist_ok=True)
         # ROC
         fig, ax = plt.subplots(figsize=(5, 5))
-        RocCurveDisplay.from_predictions(y_true, pre, name="pre-proba", ax=ax)
-        RocCurveDisplay.from_predictions(y_true, post, name="calibrated-proba", ax=ax)
+        disp_pre = RocCurveDisplay.from_predictions(y_true, pre, name="pre-proba", ax=ax)
+        # Make the pre line clearly visible (solid)
+        if hasattr(disp_pre, "line_") and disp_pre.line_ is not None:
+            disp_pre.line_.set_color("#1f77b4")
+            disp_pre.line_.set_alpha(0.9)
+            disp_pre.line_.set_linestyle("-")
+            disp_pre.line_.set_linewidth(2.0)
+        disp_post = RocCurveDisplay.from_predictions(y_true, post, name="calibrated-proba", ax=ax)
+        # Make the post line distinct (dashed) to show overlap
+        if hasattr(disp_post, "line_") and disp_post.line_ is not None:
+            disp_post.line_.set_color("#ff7f0e")
+            disp_post.line_.set_alpha(0.9)
+            disp_post.line_.set_linestyle("--")
+            disp_post.line_.set_linewidth(2.0)
         ax.plot([0, 1], [0, 1], ls="--", color="gray", lw=1)
         ax.set_title("ROC (probabilities)")
-        fig.tight_layout();
+        # Clarify overlap in legend
+        ax.legend(loc="lower right", title="Curves often overlap")
+        fig.tight_layout()
         fig.savefig(out_dir / "roc.png");
         plt.close(fig)
         # PR
         fig, ax = plt.subplots(figsize=(5, 5))
-        PrecisionRecallDisplay.from_predictions(y_true, pre, name="pre-proba", ax=ax)
-        PrecisionRecallDisplay.from_predictions(y_true, post, name="calibrated-proba", ax=ax)
+        pr_pre = PrecisionRecallDisplay.from_predictions(y_true, pre, name="pre-proba", ax=ax)
+        if hasattr(pr_pre, "line_") and pr_pre.line_ is not None:
+            pr_pre.line_.set_color("#1f77b4")
+            pr_pre.line_.set_alpha(0.9)
+            pr_pre.line_.set_linestyle("-")
+            pr_pre.line_.set_linewidth(2.0)
+        pr_post = PrecisionRecallDisplay.from_predictions(y_true, post, name="calibrated-proba", ax=ax)
+        if hasattr(pr_post, "line_") and pr_post.line_ is not None:
+            pr_post.line_.set_color("#ff7f0e")
+            pr_post.line_.set_alpha(0.9)
+            pr_post.line_.set_linestyle("--")
+            pr_post.line_.set_linewidth(2.0)
         ax.set_title("PR (probabilities)")
-        fig.tight_layout();
+        ax.legend(loc="lower left", title="Curves often overlap")
+        fig.tight_layout()
         fig.savefig(out_dir / "pr.png");
         plt.close(fig)
         # Histogram
