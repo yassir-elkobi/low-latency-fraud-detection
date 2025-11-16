@@ -55,7 +55,7 @@ jobs:
 
       - name: Streaming simulation (bounded)
         run: |
-          python -m scripts.simulate_stream --alpha 0.05 --mode window --window 2000 --label_delay 200 --max_events 15000
+          python -m scripts.simulate_stream --mode exp --decay 0.02 --mondrian_seg label --alpha_pos 0.037 --alpha_neg 0.14 --pos_slack 0.02 --adapt_gain 0.35 --adapt_gain_pos 0.9 --adapt_start_pos_n 10 --label_delay 200 --warmup 200 --max_events 15000
       - name: Streaming ablation sweep
         run: |
           python -m scripts.simulate_stream --ablate --ablate_windows "500,2000,8000" --ablate_decays "0.005,0.01,0.02" --max_events 15000
