@@ -7,8 +7,8 @@ demo-ready.
 ## Version & Report
 
 - Version: v1.0.0 (first public cut)
-- Report and archived release (Zenodo): https://zenodo.org/records/17571285  
-  [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17571285.svg)](https://doi.org/10.5281/zenodo.17571285)
+- Report and archived release (Zenodo): https://zenodo.org/records/17664104  
+  [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17664104.svg)](https://doi.org/10.5281/zenodo.17664104)
 
 ## Quickstart
 
